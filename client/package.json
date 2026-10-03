@@ -10,7 +10,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@colyseus/sdk": "^0.18.4",
+    "@colyseus/schema": "^5.0.35",
     "@zombies/shared": "workspace:*",
     "n8ao": "^2.0.1",
     "postprocessing": "^6.39.5",

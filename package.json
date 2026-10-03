@@ -6,11 +6,12 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter ./client --filter ./server dev",
-    "build": "pnpm --filter ./client build && pnpm --filter ./server build",
-    "start": "pnpm --filter ./server start",
-    "typecheck": "pnpm -r typecheck && tsc -p functions",
-    "pages:dev": "wrangler pages dev --port 8788",
+    "dev": "pnpm run --parallel \"/^dev:/\"",
+    "dev:client": "pnpm --filter ./client dev",
+    "dev:worker": "node -e \"require('fs').mkdirSync('client/dist',{recursive:true})\" && CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler dev --port 8787",
+    "build": "pnpm --filter ./client build",
+    "typecheck": "pnpm -r typecheck",
+    "db:migrate:local": "wrangler d1 migrations apply zombie-breakout-db --local",
     "assets": "node scripts/fetch-assets.mjs",
     "smoke": "node client/scripts/smoke-bot.mjs"
   },

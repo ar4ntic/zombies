@@ -161,6 +161,7 @@ export class Game {
         this.weapons.addReserve(e.weapon, e.amount);
         this.hud?.notice(`+${e.amount} rifle ammo`);
       },
+      personalBest: (e) => this.hud?.personalBest(e),
       disconnected: () => this.hud?.disconnected(),
     };
     if (choice.mode === "join") {

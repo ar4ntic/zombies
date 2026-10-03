@@ -11,6 +11,7 @@ import {
   type DifficultyId,
 } from "@zombies/shared";
 import type { SessionChoice } from "../game/Game.ts";
+import { Leaderboard } from "./Leaderboard.ts";
 
 const NAME_KEY = "zombies.nickname";
 const DIFFICULTY_KEY = "zombies.difficulty";
@@ -51,30 +52,35 @@ export function showMenu(root: HTMLElement, inviteCode: string | null, errorMess
   const panel = document.createElement("div");
   panel.className = "menu";
   panel.innerHTML = `
-    <h1>Zombie Breakout</h1>
-    <p class="tagline">Clear the streets. Save the town.</p>
-    <label>Your nickname
-      <input name="nickname" maxlength="${NICKNAME_MAX_LENGTH}" autocomplete="off" placeholder="e.g. ShadowFox" />
-    </label>
-    <div class="setting">
-      <span class="setting-label">Difficulty</span>
-      ${segmented("difficulty", DIFFICULTY_IDS.map((id) => [id, DIFFICULTIES[id].label]), settings.difficulty)}
+    <div class="menu-main">
+      <h1>Zombie Breakout</h1>
+      <p class="tagline">Clear the streets. Save the town.</p>
+      <label>Your nickname
+        <input name="nickname" maxlength="${NICKNAME_MAX_LENGTH}" autocomplete="off" placeholder="e.g. ShadowFox" />
+      </label>
+      <div class="setting">
+        <span class="setting-label">Difficulty</span>
+        ${segmented("difficulty", DIFFICULTY_IDS.map((id) => [id, DIFFICULTIES[id].label]), settings.difficulty)}
+      </div>
+      <div class="setting">
+        <span class="setting-label">Round length</span>
+        ${segmented("minutes", ROUND_MINUTES.map((m) => [String(m), `${m} min`]), String(settings.minutes))}
+      </div>
+      <div class="buttons">
+        <button data-action="solo" class="primary">Single player</button>
+        <button data-action="create">Create team session</button>
+      </div>
+      <div class="join">
+        <input name="code" maxlength="${SESSION_CODE_LENGTH}" autocomplete="off" placeholder="Session code" />
+        <button data-action="join">Join</button>
+      </div>
+      <p class="join-hint">Joining players use the host's difficulty and round length.</p>
+      <p class="error" hidden></p>
     </div>
-    <div class="setting">
-      <span class="setting-label">Round length</span>
-      ${segmented("minutes", ROUND_MINUTES.map((m) => [String(m), `${m} min`]), String(settings.minutes))}
-    </div>
-    <div class="buttons">
-      <button data-action="solo" class="primary">Single player</button>
-      <button data-action="create">Create team session</button>
-    </div>
-    <div class="join">
-      <input name="code" maxlength="${SESSION_CODE_LENGTH}" autocomplete="off" placeholder="Session code" />
-      <button data-action="join">Join</button>
-    </div>
-    <p class="join-hint">Joining players use the host's difficulty and round length.</p>
-    <p class="error" hidden></p>
   `;
+  const board = new Leaderboard("Top survivors");
+  panel.append(board.el);
+  void board.show(settings.difficulty, settings.minutes);
   root.append(panel);
 
   const nameInput = panel.querySelector<HTMLInputElement>('input[name="nickname"]')!;
@@ -99,6 +105,7 @@ export function showMenu(root: HTMLElement, inviteCode: string | null, errorMess
           settings.minutes = Number(value);
           localStorage.setItem(MINUTES_KEY, value);
         }
+        void board.show(settings.difficulty, settings.minutes);
         return;
       }
 

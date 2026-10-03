@@ -42,7 +42,7 @@ body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: min(460px, 92vw);
+  width: min(780px, 94vw);
   max-height: calc(100vh - 24px);
   overflow-y: auto;
   padding: clamp(18px, 4vh, 32px) 32px;
@@ -52,8 +52,35 @@ body {
   backdrop-filter: blur(8px);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   display: flex;
+  gap: 28px;
+}
+
+.menu-main {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
   flex-direction: column;
   gap: clamp(10px, 2vh, 16px);
+}
+
+.menu .leaderboard {
+  flex: 0 0 240px;
+  padding-left: 24px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+@media (max-width: 720px) {
+  .menu {
+    width: min(460px, 92vw);
+    flex-direction: column;
+  }
+
+  .menu .leaderboard {
+    flex-basis: auto;
+    padding: 14px 0 0;
+    border-left: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
 }
 
 .menu h1 {
@@ -1012,7 +1039,12 @@ kbd {
 }
 
 .hud .end-card {
+  display: flex;
+  gap: 28px;
   min-width: min(560px, 94vw);
+  max-width: 96vw;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
   padding: 30px 36px;
   border-radius: 18px;
   background: var(--panel);
@@ -1120,4 +1152,88 @@ kbd {
   display: flex;
   justify-content: center;
   gap: 12px;
+}
+
+.hud .end-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.hud .end .leaderboard {
+  flex: 0 0 230px;
+  padding-left: 24px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  text-align: left;
+}
+
+.hud .personal-best {
+  margin: -8px 0 12px;
+  font-size: 0.9rem;
+  opacity: 0.75;
+}
+
+.hud .personal-best.new {
+  display: inline-block;
+  padding: 3px 12px;
+  border-radius: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #1a1400;
+  background: #ffd84d;
+  opacity: 1;
+  animation: star-pop 0.45s cubic-bezier(0.2, 1.8, 0.4, 1) 1s both;
+}
+
+.leaderboard h3 {
+  margin: 0;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.leaderboard .board-sub {
+  margin: 2px 0 8px;
+  font-size: 0.8rem;
+  opacity: 0.6;
+}
+
+.leaderboard .board-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.leaderboard .board-list li {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.leaderboard .board-list li.me {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.leaderboard .rank {
+  width: 1.4em;
+  opacity: 0.6;
+}
+
+.leaderboard .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leaderboard .board-status {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+  opacity: 0.6;
 }

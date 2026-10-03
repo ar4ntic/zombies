@@ -1,25 +1,32 @@
-import { Callbacks, Client, type Room } from "@colyseus/sdk";
+import { Callbacks, Decoder } from "@colyseus/schema";
 import {
-  GAME_ROOM,
+  GameState,
+  RECONNECT_GRACE_SECONDS,
+  StateFrame,
   type AmmoRefillEvent,
-  type GameState,
+  type ClientMessages,
+  type Envelope,
   type JoinOptions,
   type KillEvent,
   type MoveMessage,
+  type PersonalBestEvent,
   type PlayerHurtEvent,
   type PlayerState,
+  type ServerEvents,
   type ShootMessage,
   type ShotEvent,
   type WeaponId,
   type ZombieHitEvent,
   type ZombieState,
 } from "@zombies/shared";
+import { createSession, getSession, playerId } from "./api.ts";
 
-function serverUrl(): string {
-  const fromEnv = import.meta.env.VITE_SERVER_URL as string | undefined;
-  if (fromEnv) return fromEnv;
-  if (import.meta.env.DEV) return `${location.protocol}//${location.hostname}:2567`;
-  return location.origin;
+const RECONNECT_DELAY_MS = 1000;
+const LEAVE_CLOSE_CODE = 1000;
+
+function socketUrl(code: string, params: URLSearchParams): string {
+  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${location.host}/ws/${encodeURIComponent(code)}?${params}`;
 }
 
 export interface NetworkEvents {
@@ -33,36 +40,50 @@ export interface NetworkEvents {
   kill(e: KillEvent): void;
   playerHurt(e: PlayerHurtEvent): void;
   ammo(e: AmmoRefillEvent): void;
+  personalBest(e: PersonalBestEvent): void;
   disconnected(): void;
 }
 
+interface Connection {
+  code: string;
+  decoder: Decoder<GameState>;
+  events: NetworkEvents;
+  sessionId: string;
+  token: string;
+  socket?: WebSocket;
+}
+
 export class Network {
-  private readonly client = new Client(serverUrl());
-  private room?: Room<any, GameState>;
+  private connection?: Connection;
 
   get sessionId(): string {
-    return this.room?.sessionId ?? "";
+    return this.connection?.sessionId ?? "";
   }
 
   get sessionCode(): string {
-    return this.room?.roomId ?? "";
+    return this.connection?.code ?? "";
   }
 
   get state(): GameState | undefined {
-    return this.room?.state;
+    return this.connection?.decoder.state;
   }
 
   async createSession(options: JoinOptions, events: NetworkEvents) {
-    this.attach(await this.client.create<GameState>(GAME_ROOM, options), events);
+    const { code } = await createSession(options);
+    await this.open(code, options, events);
   }
 
   async joinSession(code: string, options: JoinOptions, events: NetworkEvents) {
-    this.attach(await this.client.joinById<GameState>(code.toUpperCase(), options), events);
+    code = code.toUpperCase();
+    const info = await getSession(code);
+    if (!info?.exists || info.full) throw new Error("Session not found or full");
+    await this.open(code, options, events);
   }
 
-  private attach(room: Room<any, GameState>, events: NetworkEvents) {
-    this.room = room;
-    const callbacks = Callbacks.get(room);
+  private async open(code: string, options: JoinOptions, events: NetworkEvents) {
+    const decoder = new Decoder(new GameState());
+    const connection: Connection = { code, decoder, events, sessionId: "", token: "" };
+    const callbacks = Callbacks.get(decoder);
     callbacks.onAdd("players", (player, id) => events.playerAdded(id, player));
     callbacks.onRemove("players", (_player, id) => events.playerRemoved(id));
     callbacks.onAdd("zombies", (zombie, id) => {
@@ -70,39 +91,106 @@ export class Network {
       callbacks.onChange(zombie, () => events.zombieChanged(id));
     });
     callbacks.onRemove("zombies", (_zombie, id) => events.zombieRemoved(id));
-    room.onMessage("shot", events.shot);
-    room.onMessage("zombieHit", events.zombieHit);
-    room.onMessage("kill", events.kill);
-    room.onMessage("playerHurt", events.playerHurt);
-    room.onMessage("ammo", events.ammo);
-    room.onLeave(() => {
-      if (this.room === room) events.disconnected();
+    this.connection = connection;
+    await this.connect(connection, new URLSearchParams({ name: options.name, playerId: playerId() }));
+  }
+
+  /** Resolves once the full state has arrived; rejects if the socket closes before that. */
+  private connect(connection: Connection, params: URLSearchParams): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const socket = new WebSocket(socketUrl(connection.code, params));
+      socket.binaryType = "arraybuffer";
+      connection.socket = socket;
+      let synced = false;
+      socket.addEventListener("message", (event) => {
+        if (connection.socket !== socket) return;
+        if (typeof event.data === "string") return this.handleEvent(connection, JSON.parse(event.data));
+        const bytes = new Uint8Array(event.data as ArrayBuffer);
+        const { decoder } = connection;
+        if (bytes[0] === StateFrame.Full) {
+          if (decoder.root.refs.size > 1) decoder.decodeResync(bytes, { offset: 1 });
+          else decoder.decode(bytes, { offset: 1 });
+          if (!synced) resolve();
+          synced = true;
+        } else if (synced) {
+          decoder.decode(bytes, { offset: 1 });
+        }
+      });
+      socket.addEventListener("close", () => {
+        if (connection.socket !== socket) return;
+        connection.socket = undefined;
+        if (synced) void this.reconnect(connection);
+        else reject(new Error("Could not connect to the session"));
+      });
     });
   }
 
+  private async reconnect(connection: Connection) {
+    const deadline = Date.now() + RECONNECT_GRACE_SECONDS * 1000;
+    while (this.connection === connection && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, RECONNECT_DELAY_MS));
+      if (this.connection !== connection) return;
+      try {
+        await this.connect(connection, new URLSearchParams({ token: connection.token }));
+        return;
+      } catch {}
+    }
+    if (this.connection === connection) connection.events.disconnected();
+  }
+
+  private handleEvent(connection: Connection, message: Envelope) {
+    const { events } = connection;
+    const type = message.type as keyof ServerEvents;
+    const data = message.data as any;
+    switch (type) {
+      case "welcome":
+        connection.sessionId = data.sessionId;
+        connection.token = data.token;
+        break;
+      case "shot":
+      case "zombieHit":
+      case "kill":
+      case "playerHurt":
+      case "ammo":
+      case "personalBest":
+        events[type](data);
+        break;
+      case "error":
+        console.warn("Server error:", data?.message);
+        break;
+    }
+  }
+
+  private send<K extends keyof ClientMessages>(type: K, data: ClientMessages[K]) {
+    const socket = this.connection?.socket;
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type, data }));
+  }
+
   sendMove(move: MoveMessage) {
-    this.room?.send("move", move);
+    this.send("move", move);
   }
 
   sendShoot(msg: ShootMessage) {
-    this.room?.send("shoot", msg);
+    this.send("shoot", msg);
   }
 
   sendWeapon(weapon: WeaponId) {
-    this.room?.send("weapon", { weapon });
+    this.send("weapon", { weapon });
   }
 
   sendPause(paused: boolean) {
-    this.room?.send("pause", { paused });
+    this.send("pause", { paused });
   }
 
   sendRestart() {
-    this.room?.send("restart", {});
+    this.send("restart", {});
   }
 
   leave() {
-    const room = this.room;
-    this.room = undefined;
-    void room?.leave();
+    const connection = this.connection;
+    this.connection = undefined;
+    const socket = connection?.socket;
+    if (connection) connection.socket = undefined;
+    socket?.close(LEAVE_CLOSE_CODE, "Left the game");
   }
 }

@@ -1,9 +1,9 @@
-export const GAME_ROOM = "game";
-
 export const TICK_RATE = 20;
 export const TICK_MS = 1000 / TICK_RATE;
 
 export const MAX_PLAYERS = 4;
+/** How long a dropped player keeps their spot and can reconnect. */
+export const RECONNECT_GRACE_SECONDS = 30;
 
 export const SESSION_CODE_LENGTH = 6;
 export const SESSION_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";

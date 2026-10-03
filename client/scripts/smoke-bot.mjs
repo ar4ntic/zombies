@@ -1,14 +1,18 @@
-// Checks session options, then plays a solo round over the network with perfect aim.
-// Usage: pnpm smoke [url] [roundSeconds] [--difficulty=normal] [--die] [--human | --still]
+// Checks session options and a two-client team session, then plays a solo round over the network with perfect aim.
+// Usage: pnpm smoke [url] [roundSeconds | --minutes=N] [--difficulty=normal] [--die] [--human | --still]
+// --minutes plays a standard-length round, which also shows up on the leaderboard (checked at the end).
 // --die holds fire until the bot is knocked out once, to exercise death, penalty and respawn.
 // --human aims like a decent player (slower, misses, fewer headshots, shorter range) and backs away from zombies.
 // --still aims like --human but stands still.
-import { Callbacks, Client } from "@colyseus/sdk";
+import { Callbacks, Decoder } from "@colyseus/schema";
+import { GameState, StateFrame } from "../../shared/src/index.ts";
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
-const url = args[0] ?? "http://localhost:8080";
-const duration = Number(args[1] ?? 60);
-const difficulty = process.argv.find((a) => a.startsWith("--difficulty="))?.split("=")[1] ?? "normal";
+const option = (name) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split("=")[1];
+const url = (args[0] ?? "http://localhost:8787").replace(/\/$/, "");
+const minutes = option("minutes") ? Number(option("minutes")) : undefined;
+const duration = minutes ? minutes * 60 : Number(args[1] ?? 60);
+const difficulty = option("difficulty") ?? "normal";
 const testDeath = process.argv.includes("--die");
 const still = process.argv.includes("--still");
 const human = still || process.argv.includes("--human");
@@ -17,38 +21,174 @@ const aim = human
   : { interval: 100, range: 55, hitChance: 1, headChance: 0.4 };
 const ARENA_LIMIT = 27;
 const FLEE_SPEED = 4.5;
+const STANDARD_MINUTES = [1, 3, 5, 7, 10];
 let lastShot = 0;
 const failures = [];
 
-const client = new Client(url);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+async function api(path, init) {
+  const res = await fetch(`${url}${path}`, init);
+  return { status: res.status, body: await res.json().catch(() => null) };
+}
+
+/** Minimal client for the Worker protocol: JSON text events, binary schema state frames. */
+class Session {
+  static async create(options) {
+    const { status, body } = await api("/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(options),
+    });
+    if (status !== 201) throw new Error(`create session failed: HTTP ${status}`);
+    return Session.join(body.code, options.name, options.playerId);
+  }
+
+  static async join(code, name, playerId = crypto.randomUUID()) {
+    const session = new Session(code);
+    await session.connect(new URLSearchParams({ name, playerId }));
+    return session;
+  }
+
+  constructor(code) {
+    this.code = code;
+    this.decoder = new Decoder(new GameState());
+    this.callbacks = Callbacks.get(this.decoder);
+    this.handlers = new Map();
+    this.sessionId = "";
+    this.token = "";
+  }
+
+  get state() {
+    return this.decoder.state;
+  }
+
+  connect(params) {
+    return new Promise((resolve, reject) => {
+      const socket = new WebSocket(`${url.replace(/^http/, "ws")}/ws/${this.code}?${params}`);
+      socket.binaryType = "arraybuffer";
+      this.socket = socket;
+      let synced = false;
+      socket.addEventListener("message", (event) => {
+        if (typeof event.data === "string") {
+          const { type, data } = JSON.parse(event.data);
+          if (type === "welcome") Object.assign(this, { sessionId: data.sessionId, token: data.token });
+          this.handlers.get(type)?.(data);
+          return;
+        }
+        const bytes = new Uint8Array(event.data);
+        if (bytes[0] === StateFrame.Full) {
+          if (this.decoder.root.refs.size > 1) this.decoder.decodeResync(bytes, { offset: 1 });
+          else this.decoder.decode(bytes, { offset: 1 });
+          if (!synced) resolve();
+          synced = true;
+        } else if (synced) {
+          this.decoder.decode(bytes, { offset: 1 });
+        }
+      });
+      const refused = () => {
+        if (!synced) reject(new Error(`connection to ${this.code} refused`));
+      };
+      socket.addEventListener("error", refused);
+      socket.addEventListener("close", refused);
+    });
+  }
+
+  onMessage(type, handler) {
+    this.handlers.set(type, handler);
+  }
+
+  send(type, data) {
+    if (this.socket.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify({ type, data }));
+  }
+
+  leave() {
+    this.socket.close(1000);
+  }
+
+  /** Simulates a dropped connection; the server keeps the player for the grace period. */
+  drop() {
+    this.socket.close(4000);
+  }
+
+  reconnect() {
+    return this.connect(new URLSearchParams({ token: this.token }));
+  }
+}
+
 async function checkSessions() {
-  const host = await client.create("game", { name: "Host", difficulty: "bogus", minutes: 4 });
-  const guest = await client.joinById(host.roomId, { name: "Guest", difficulty: "easy", minutes: 1 });
+  const host = await Session.create({ name: "Host", difficulty: "bogus", minutes: 4, duration: 30 });
+  const guest = await Session.join(host.code, "Guest");
   await sleep(400);
   if (host.state.difficulty !== "normal" || host.state.duration !== 300) {
     failures.push(`invalid options not clamped (${host.state.difficulty}, ${host.state.duration}s)`);
   }
   if (guest.state.hostId !== host.sessionId) failures.push("creator is not host");
-  await host.leave();
+  host.leave();
   await sleep(400);
   if (guest.state.hostId !== guest.sessionId) failures.push("host not transferred on leave");
-  await guest.leave();
+  guest.leave();
+  await sleep(300);
+  if ((await api(`/api/sessions/${host.code}`)).status !== 404) failures.push("empty session still exists");
 
-  const custom = await client.create("game", { name: "Host", difficulty: "nightmare", minutes: 10 });
+  const custom = await Session.create({ name: "Host", difficulty: "nightmare", minutes: 10 });
   await sleep(400);
   const { state } = custom;
   if (state.difficulty !== "nightmare" || state.duration !== 600) failures.push("custom settings not applied");
   console.log(`sessions: clamped=normal/300s, nightmare/10min star=${state.scoreStar}, host transfer ok=${!failures.length}`);
-  await custom.leave();
+  custom.leave();
+}
+
+async function checkTeam() {
+  const before = failures.length;
+  const host = await Session.create({ name: "Alice", difficulty: "easy", minutes: 3 });
+  const info = await api(`/api/sessions/${host.code.toLowerCase()}`);
+  if (info.status !== 200 || info.body.full || info.body.players !== 1 || info.body.minutes !== 3) {
+    failures.push(`session info wrong: ${JSON.stringify(info.body)}`);
+  }
+  const guest = await Session.join(host.code, "Bob");
+  await sleep(400);
+  const names = (s) => [...s.state.players.values()].map((p) => p.name).sort().join(",");
+  if (names(host) !== "Alice,Bob" || names(guest) !== "Alice,Bob") failures.push(`players not shared: ${names(host)} / ${names(guest)}`);
+  if (host.state.hostId !== host.sessionId || guest.state.hostId !== host.sessionId) failures.push("team host wrong");
+
+  const guestId = guest.sessionId;
+  guest.drop();
+  await sleep(1500);
+  if (!host.state.players.has(guestId)) failures.push("dropped player removed before the grace period");
+  await guest.reconnect();
+  await sleep(400);
+  if (guest.sessionId !== guestId || !guest.state.players.has(guestId) || guest.state.players.size !== 2) {
+    failures.push("reconnect with token did not restore the player");
+  }
+
+  const solo = await Session.create({ name: "Solo", solo: true, difficulty: "easy", minutes: 1 });
+  const soloInfo = await api(`/api/sessions/${solo.code}`);
+  const intruder = await Session.join(solo.code, "Intruder").then(
+    () => "joined",
+    () => "refused",
+  );
+  if (!soloInfo.body?.full || intruder !== "refused") failures.push(`solo session accepted a second player (${intruder})`);
+  solo.leave();
+  if ((await api("/api/sessions/ZZZZZZ")).status !== 404) failures.push("unknown session code not 404");
+
+  host.leave();
+  await sleep(400);
+  if (guest.state.hostId !== guestId) failures.push("team host not transferred to guest");
+  const players = guest.state.players.size;
+  guest.leave();
+  console.log(
+    `team: code=${host.code} both see Alice,Bob, reconnect kept ${guestId}, host transfer -> guest, players after leave=${players}, ok=${failures.length === before}`,
+  );
 }
 
 await checkSessions();
-const room = await client.create("game", { name: "Bot", solo: true, duration, difficulty });
-Callbacks.get(room);
+await checkTeam();
+
+const playerId = crypto.randomUUID();
+const room = await Session.create({ name: "Bot", playerId, solo: true, difficulty, ...(minutes ? { minutes } : { duration }) });
 await sleep(300);
-console.log(`joined ${room.roomId}, ${room.state.difficulty} round ${duration}s, star at ${room.state.scoreStar}${testDeath ? ", testing knockout" : ""}`);
+console.log(`joined ${room.code}, ${room.state.difficulty} round ${room.state.duration}s, star at ${room.state.scoreStar}${testDeath ? ", testing knockout" : ""}`);
 if (room.state.difficulty !== difficulty) failures.push(`difficulty ${room.state.difficulty}, expected ${difficulty}`);
 let pauseCheck = "pending";
 let pausedTimer = 0;
@@ -66,6 +206,7 @@ let penaltyOk = !testDeath;
 let deathPhase = testDeath;
 let observedDeaths = 0;
 let maxAlive = 0;
+let personalBest;
 const types = new Set();
 
 room.onMessage("zombieHit", () => hits++);
@@ -73,8 +214,7 @@ room.onMessage("kill", () => kills++);
 room.onMessage("playerHurt", (e) => {
   if (e.player === room.sessionId) hurt++;
 });
-room.onMessage("ammo", () => {});
-room.onMessage("shot", () => {});
+room.onMessage("personalBest", (e) => (personalBest = e));
 
 const started = Date.now();
 const elapsed = () => ((Date.now() - started) / 1000).toFixed(1);
@@ -172,7 +312,23 @@ await new Promise((resolve) => {
   }, 100);
 });
 
-await room.leave();
+const finalScore = room.state.players.get(room.sessionId)?.score ?? 0;
+for (let i = 0; i < 50 && !personalBest; i++) await sleep(100);
+console.log(`personalBest: ${JSON.stringify(personalBest)}`);
+if (!personalBest) failures.push("no personalBest event");
+else if (personalBest.isBest !== finalScore > 0 || personalBest.previousBest !== null) failures.push("personalBest wrong for a new player");
+
+const roundMinutes = room.state.duration / 60;
+if (STANDARD_MINUTES.includes(roundMinutes)) {
+  const board = await api(`/api/leaderboard?level=${room.state.levelId}&difficulty=${difficulty}&minutes=${roundMinutes}&limit=50&player=${playerId}`);
+  const mine = board.body?.entries?.find((e) => e.me);
+  console.log(`leaderboard ${difficulty}/${roundMinutes}min: ${board.body?.entries?.length ?? 0} entries, bot ${mine ? `#${mine.rank} ${mine.nickname} ${mine.score}` : "missing"}`);
+  if (!mine || mine.score !== finalScore) failures.push("bot not on the leaderboard with its score");
+} else {
+  console.log(`leaderboard: skipped, ${room.state.duration}s is not a standard round length`);
+}
+
+room.leave();
 if (failures.length) {
   console.error("FAILED:", failures.join("; "));
   process.exit(1);

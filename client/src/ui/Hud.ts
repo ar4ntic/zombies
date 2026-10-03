@@ -1,6 +1,16 @@
 import { MathUtils } from "three";
-import { DEATH_PENALTY, PLAYER_MAX_HP, WEAPONS, formatRoundLength, settingsLabel, type PlayerState } from "@zombies/shared";
+import {
+  DEATH_PENALTY,
+  PLAYER_MAX_HP,
+  WEAPONS,
+  formatRoundLength,
+  isRoundMinutes,
+  settingsLabel,
+  type PersonalBestEvent,
+  type PlayerState,
+} from "@zombies/shared";
 import type { Game } from "../game/Game.ts";
+import { Leaderboard } from "./Leaderboard.ts";
 
 const HURT_FADE = 1.6;
 
@@ -30,6 +40,8 @@ export class Hud {
   private noticeTimer = 0;
   private started = false;
   private lost = false;
+  private readonly board = new Leaderboard();
+  private best?: PersonalBestEvent;
 
   constructor(
     root: HTMLElement,
@@ -116,22 +128,26 @@ export class Hud {
       </div>
 
       <div class="end" data-ref="end" hidden>
-        <div class="end-card">
-          <h1 data-ref="endTitle"></h1>
-          <p class="settings-tag" data-ref="endSettings"></p>
-          <div class="stars" data-ref="stars"></div>
-          <div class="end-score" data-ref="endScore"></div>
-          <table class="stats" data-ref="stats"></table>
-          <div class="end-buttons">
-            <button class="primary" data-ref="again">Play again</button>
-            <button data-ref="menu">Back to menu</button>
+        <div class="end-card" data-ref="endCard">
+          <div class="end-main">
+            <h1 data-ref="endTitle"></h1>
+            <p class="settings-tag" data-ref="endSettings"></p>
+            <div class="stars" data-ref="stars"></div>
+            <div class="end-score" data-ref="endScore"></div>
+            <p class="personal-best" data-ref="personalBest" hidden></p>
+            <table class="stats" data-ref="stats"></table>
+            <div class="end-buttons">
+              <button class="primary" data-ref="again">Play again</button>
+              <button data-ref="menu">Back to menu</button>
+            </div>
+            <p class="hint" data-ref="endHint"></p>
           </div>
-          <p class="hint" data-ref="endHint"></p>
         </div>
       </div>
     `;
     root.append(this.el);
     for (const node of this.el.querySelectorAll<HTMLElement>("[data-ref]")) this.$[node.dataset.ref!] = node;
+    this.$.endCard!.append(this.board.el);
 
     const code = game.network.sessionCode;
     if (!game.solo && code) {
@@ -255,10 +271,42 @@ export class Hud {
     const isHost = state.hostId === this.game.network.sessionId;
     this.$.again!.hidden = !isHost;
     this.$.endHint!.textContent = isHost ? "" : "Waiting for the host to start another round...";
+    this.showPersonalBest();
+    this.showBoard();
   }
 
   hideEnd() {
     this.$.end!.hidden = true;
+    this.best = undefined;
+  }
+
+  personalBest(e: PersonalBestEvent) {
+    this.best = e;
+    if (this.$.end!.hidden) return;
+    this.showPersonalBest();
+    this.showBoard();
+  }
+
+  private showPersonalBest() {
+    const el = this.$.personalBest!;
+    const best = this.best;
+    el.classList.toggle("new", !!best?.isBest);
+    el.textContent = !best
+      ? ""
+      : best.isBest
+        ? "New personal best!"
+        : best.previousBest !== null
+          ? `Personal best ${best.previousBest.toLocaleString()}`
+          : "";
+    el.hidden = !el.textContent;
+  }
+
+  private showBoard() {
+    const state = this.game.state!;
+    const minutes = state.duration / 60;
+    const ranked = isRoundMinutes(minutes);
+    this.board.el.hidden = !ranked;
+    if (ranked) void this.board.show(state.difficulty, minutes);
   }
 
   update(dt: number) {
@@ -268,7 +316,7 @@ export class Hud {
     if (!state || !me) return;
 
     this.updateTimer(state.phase, state.wave, state.timer, state.zombies.size);
-    this.$.knockout!.classList.toggle("show", me.dead && !game.finished);
+    this.$.knockout!.classList.toggle("show", me.dead && !game.finished && game.input.locked);
     if (me.dead) this.set("respawn", `${Math.max(1, Math.ceil(me.respawnIn))}`);
     this.$.protection!.classList.toggle("show", me.protection > 0 && !me.dead);
     this.set("score", me.score.toLocaleString());

@@ -3,6 +3,8 @@ import type { WeaponId } from "./weapons.ts";
 
 export interface JoinOptions {
   name: string;
+  /** Persistent anonymous id for personal bests and the leaderboard. */
+  playerId?: string;
   solo?: boolean;
   /** Round settings, used when creating a session; joiners inherit the host's. */
   difficulty?: DifficultyId;
@@ -73,4 +75,87 @@ export interface PlayerHurtEvent {
 export interface AmmoRefillEvent {
   weapon: WeaponId;
   amount: number;
+}
+
+export interface WelcomeEvent {
+  sessionId: string;
+  /** Lets the client reconnect to its player within the grace period. */
+  token: string;
+  code: string;
+}
+
+export interface PersonalBestEvent {
+  isBest: boolean;
+  previousBest: number | null;
+}
+
+export interface ServerErrorEvent {
+  message: string;
+}
+
+export interface ClientMessages {
+  move: MoveMessage;
+  shoot: ShootMessage;
+  weapon: SwitchWeaponMessage;
+  pause: PauseMessage;
+  restart: Record<string, never>;
+}
+
+export interface ServerEvents {
+  welcome: WelcomeEvent;
+  shot: ShotEvent;
+  zombieHit: ZombieHitEvent;
+  kill: KillEvent;
+  playerHurt: PlayerHurtEvent;
+  ammo: AmmoRefillEvent;
+  personalBest: PersonalBestEvent;
+  error: ServerErrorEvent;
+}
+
+/** JSON text frame in either direction. */
+export interface Envelope<T extends string = string, D = unknown> {
+  type: T;
+  data: D;
+}
+
+/** First byte of binary server frames, followed by @colyseus/schema bytes. */
+export const StateFrame = {
+  Full: 0,
+  Patch: 1,
+} as const;
+
+export interface CreateSessionResponse {
+  code: string;
+  solo: boolean;
+  difficulty: string;
+  duration: number;
+}
+
+export interface SessionInfo {
+  exists: boolean;
+  full: boolean;
+  solo: boolean;
+  difficulty: string;
+  minutes: number;
+  duration: number;
+  players: number;
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  nickname: string;
+  score: number;
+  kills: number;
+  headshots: number;
+  deaths: number;
+  endedAt: string;
+  /** Set when the request named this player. */
+  me?: boolean;
+}
+
+export interface LeaderboardResponse {
+  level: string;
+  difficulty: string;
+  durationMinutes: number;
+  entries: LeaderboardEntry[];
 }

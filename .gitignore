@@ -1,6 +1,5 @@
 node_modules/
 dist/
-data/
 .asset-cache/
 .env
 .dev.vars
