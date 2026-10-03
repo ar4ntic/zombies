@@ -5,6 +5,7 @@ import {
   buildColliders,
   type GameState,
   type PlayerState,
+  type SettingsMessage,
 } from "@zombies/shared";
 import { Renderer, type Quality } from "../engine/Renderer.ts";
 import { Network, type NetworkEvents } from "../net/Network.ts";
@@ -105,6 +106,10 @@ export class Game {
     return this.state?.phase === "ended";
   }
 
+  get inLobby(): boolean {
+    return this.state?.phase === "lobby";
+  }
+
   get aimProgress(): number {
     return this.viewModel.aimProgress;
   }
@@ -176,6 +181,15 @@ export class Game {
     this.network.sendRestart();
   }
 
+  startRound() {
+    this.network.sendStart();
+    this.input.lock();
+  }
+
+  changeSettings(settings: SettingsMessage) {
+    this.network.sendSettings(settings);
+  }
+
   leave() {
     clearTimeout(this.resultsTimer);
     this.network.leave();
@@ -202,7 +216,7 @@ export class Game {
     if (state && me) this.syncWithServer(state, me);
 
     const paused = !!state?.paused;
-    const active = this.input.locked && !this.finished && !paused && !!me;
+    const active = this.input.locked && !this.finished && !this.inLobby && !paused && !!me;
     this.handlePointerLock();
 
     this.player.update(paused ? 0 : dt, active);
@@ -236,7 +250,8 @@ export class Game {
   }
 
   private syncWithServer(state: GameState, me: PlayerState) {
-    const restarted = this.lastPhase === "ended" && state.phase === "countdown";
+    const restarted = this.lastPhase === "ended" && state.phase !== "ended";
+    if (state.phase === "lobby" && this.lastPhase !== "lobby") this.input.unlock();
     if (!this.spawned || restarted) {
       this.spawned = true;
       this.player.spawn(me.x, me.z, Math.atan2(me.x, me.z));

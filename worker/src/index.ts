@@ -57,6 +57,11 @@ async function connect(request: Request, env: Env, code: string): Promise<Respon
 async function getLeaderboard(env: Env, params: URLSearchParams): Promise<Response> {
   const category = parseCategory(params);
   if (!category) return json({ error: "difficulty and a standard round length (minutes) are required" }, 400);
-  const entries = await leaderboard(env.DB, category, parseLimit(params), params.get("player") ?? undefined);
-  return json({ ...category, entries });
+  try {
+    const entries = await leaderboard(env.DB, category, parseLimit(params), params.get("player") ?? undefined);
+    return json({ ...category, entries });
+  } catch (err) {
+    console.error("Could not load leaderboard", err);
+    return json({ error: "Leaderboard unavailable" }, 503);
+  }
 }

@@ -37,7 +37,7 @@ export const ZombieState = schema(
 );
 export type ZombieState = SchemaType<typeof ZombieState>;
 
-export type GamePhase = "countdown" | "playing" | "ended";
+export type GamePhase = "lobby" | "countdown" | "playing" | "ended";
 
 export const GameState = schema(
   {

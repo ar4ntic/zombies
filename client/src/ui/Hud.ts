@@ -11,6 +11,7 @@ import {
 } from "@zombies/shared";
 import type { Game } from "../game/Game.ts";
 import { Leaderboard } from "./Leaderboard.ts";
+import { Lobby } from "./Lobby.ts";
 
 const HURT_FADE = 1.6;
 
@@ -42,6 +43,7 @@ export class Hud {
   private lost = false;
   private readonly board = new Leaderboard();
   private best?: PersonalBestEvent;
+  private lobby?: Lobby;
 
   constructor(
     root: HTMLElement,
@@ -93,6 +95,7 @@ export class Hud {
         <div class="prompt-text" data-ref="promptText"></div>
       </div>
 
+      <div class="countdown" data-ref="countdown"></div>
       <div class="banner" data-ref="banner"><h2 data-ref="bannerTitle"></h2><p data-ref="bannerSub"></p></div>
       <div class="notice" data-ref="notice"></div>
       <div class="info" data-ref="info"></div>
@@ -148,6 +151,10 @@ export class Hud {
     root.append(this.el);
     for (const node of this.el.querySelectorAll<HTMLElement>("[data-ref]")) this.$[node.dataset.ref!] = node;
     this.$.endCard!.append(this.board.el);
+    if (!game.solo) {
+      this.lobby = new Lobby(game);
+      this.el.append(this.lobby.el);
+    }
 
     const code = game.network.sessionCode;
     if (!game.solo && code) {
@@ -336,13 +343,23 @@ export class Hud {
     if ((this.bannerTimer -= dt) <= 0) this.$.banner!.classList.remove("show");
     if ((this.noticeTimer -= dt) <= 0) this.$.notice!.classList.remove("show");
 
+    const inLobby = game.inLobby && !this.lost;
+    if (this.lobby) {
+      this.lobby.el.hidden = !inLobby;
+      if (inLobby) this.lobby.update();
+    }
+    const countdown = state.phase === "countdown" && !state.solo ? Math.ceil(state.timer) : 0;
+    this.set("countdown", countdown > 0 && game.input.locked ? String(countdown) : "");
+
     if (game.input.locked) this.started = true;
-    const showPause = (!game.input.locked && !game.finished) || this.lost;
+    if (inLobby) this.started = false;
+    const showPause = (!game.input.locked && !game.finished && !inLobby) || this.lost;
     if (showPause && this.$.pause!.hidden) this.confirmLeave(false);
     this.$.pause!.hidden = !showPause;
     const settings = settingsLabel(state.difficulty, state.duration);
     if (showPause && !this.lost) {
-      this.set("pauseTitle", this.started ? (state.solo ? "Paused" : "Game menu") : "Ready?");
+      const title = countdown > 0 ? `Starting in ${countdown}...` : "Ready?";
+      this.set("pauseTitle", this.started ? (state.solo ? "Paused" : "Game menu") : title);
       this.set("resume", this.started ? "Resume" : "Play");
       this.set("pauseHint", state.solo ? "" : "The game keeps running for your team while you are away!");
       this.set("pauseSettings", settings);

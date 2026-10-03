@@ -37,6 +37,11 @@ function loadSettings(): GameSettings {
   };
 }
 
+export function saveSettings(settings: GameSettings) {
+  localStorage.setItem(DIFFICULTY_KEY, settings.difficulty);
+  localStorage.setItem(MINUTES_KEY, String(settings.minutes));
+}
+
 function segmented(name: string, options: Array<[string, string]>, selected: string): string {
   return (
     `<div class="segmented" role="radiogroup" data-setting="${name}">` +
@@ -45,6 +50,23 @@ function segmented(name: string, options: Array<[string, string]>, selected: str
       .join("") +
     `</div>`
   );
+}
+
+export function settingsSelectors(settings: GameSettings): string {
+  return `
+    <div class="setting">
+      <span class="setting-label">Difficulty</span>
+      ${segmented("difficulty", DIFFICULTY_IDS.map((id) => [id, DIFFICULTIES[id].label]), settings.difficulty)}
+    </div>
+    <div class="setting">
+      <span class="setting-label">Round length</span>
+      ${segmented("minutes", ROUND_MINUTES.map((m) => [String(m), `${m} min`]), String(settings.minutes))}
+    </div>`;
+}
+
+/** Marks the selected option of a segmented control. */
+export function selectSegment(group: HTMLElement, value: string) {
+  for (const option of group.querySelectorAll<HTMLElement>("button")) option.setAttribute("aria-checked", String(option.dataset.value === value));
 }
 
 export function showMenu(root: HTMLElement, inviteCode: string | null, errorMessage?: string): Promise<MenuResult> {
@@ -58,14 +80,7 @@ export function showMenu(root: HTMLElement, inviteCode: string | null, errorMess
       <label>Your nickname
         <input name="nickname" maxlength="${NICKNAME_MAX_LENGTH}" autocomplete="off" placeholder="e.g. ShadowFox" />
       </label>
-      <div class="setting">
-        <span class="setting-label">Difficulty</span>
-        ${segmented("difficulty", DIFFICULTY_IDS.map((id) => [id, DIFFICULTIES[id].label]), settings.difficulty)}
-      </div>
-      <div class="setting">
-        <span class="setting-label">Round length</span>
-        ${segmented("minutes", ROUND_MINUTES.map((m) => [String(m), `${m} min`]), String(settings.minutes))}
-      </div>
+      ${settingsSelectors(settings)}
       <div class="buttons">
         <button data-action="solo" class="primary">Single player</button>
         <button data-action="create">Create team session</button>
@@ -96,15 +111,11 @@ export function showMenu(root: HTMLElement, inviteCode: string | null, errorMess
       const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button");
       const group = button?.closest<HTMLElement>(".segmented");
       if (button && group) {
-        for (const option of group.querySelectorAll("button")) option.setAttribute("aria-checked", String(option === button));
         const value = button.dataset.value!;
-        if (group.dataset.setting === "difficulty") {
-          settings.difficulty = value as DifficultyId;
-          localStorage.setItem(DIFFICULTY_KEY, value);
-        } else {
-          settings.minutes = Number(value);
-          localStorage.setItem(MINUTES_KEY, value);
-        }
+        selectSegment(group, value);
+        if (group.dataset.setting === "difficulty") settings.difficulty = value as DifficultyId;
+        else settings.minutes = Number(value);
+        saveSettings(settings);
         void board.show(settings.difficulty, settings.minutes);
         return;
       }

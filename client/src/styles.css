@@ -1237,3 +1237,137 @@ kbd {
   font-size: 0.85rem;
   opacity: 0.6;
 }
+
+.hud .countdown {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 7rem;
+  font-weight: 900;
+  color: var(--accent);
+  text-shadow:
+    0 0 40px rgba(125, 255, 106, 0.55),
+    var(--hud-shadow);
+}
+
+.hud .lobby {
+  pointer-events: auto;
+  user-select: text;
+  text-shadow: none;
+  z-index: 5;
+}
+
+.lobby .lobby-code {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lobby .lobby-code strong {
+  font-size: clamp(2.2rem, 7vh, 3.2rem);
+  letter-spacing: 0.3em;
+  color: var(--accent);
+  text-shadow: 0 0 24px rgba(125, 255, 106, 0.45);
+}
+
+.lobby .lobby-link {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+
+.lobby .lobby-link input {
+  min-width: 0;
+  font-size: 0.85rem;
+}
+
+.lobby .lobby-share {
+  display: flex;
+  gap: 10px;
+}
+
+.lobby .lobby-share button {
+  flex: 1;
+}
+
+.lobby [data-ref="hostSettings"] {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 2vh, 16px);
+}
+
+.lobby .settings-tag {
+  font-size: 1rem;
+  opacity: 0.9;
+}
+
+.lobby .hint {
+  margin: 0;
+  opacity: 0.75;
+}
+
+.lobby .lobby-players {
+  flex: 0 0 220px;
+  padding-left: 24px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.lobby .lobby-players h3 {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.lobby .lobby-players ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lobby .lobby-players li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.lobby .lobby-players li.me {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.lobby .lobby-players .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lobby .lobby-players .tag {
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.lobby .lobby-players .tag.host {
+  color: #1a1400;
+  background: #ffd84d;
+}
+
+@media (max-width: 720px) {
+  .lobby .lobby-players {
+    flex-basis: auto;
+    padding: 14px 0 0;
+    border-left: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+}

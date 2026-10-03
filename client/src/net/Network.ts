@@ -13,6 +13,7 @@ import {
   type PlayerHurtEvent,
   type PlayerState,
   type ServerEvents,
+  type SettingsMessage,
   type ShootMessage,
   type ShotEvent,
   type WeaponId,
@@ -180,6 +181,14 @@ export class Network {
 
   sendPause(paused: boolean) {
     this.send("pause", { paused });
+  }
+
+  sendSettings(settings: SettingsMessage) {
+    this.send("settings", settings);
+  }
+
+  sendStart() {
+    this.send("start", {});
   }
 
   sendRestart() {

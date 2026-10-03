@@ -1,6 +1,7 @@
 import {
   COMBO_WINDOW,
   COUNTDOWN_SECONDS,
+  LOBBY_COUNTDOWN_SECONDS,
   DEATH_PENALTY,
   EXTRA_ZOMBIES_PER_PLAYER,
   MAX_COMBO,
@@ -95,21 +96,19 @@ export class Simulation {
   private flowTimer = 0;
   private nextZombieId = 1;
   private time = 0;
-  private readonly difficulty: DifficultyDef;
-  private readonly duration: number;
-  private readonly waveLength: number;
-  private readonly maxAlive: number;
+  private difficulty!: DifficultyDef;
+  private duration = 0;
+  private waveLength = 0;
+  private maxAlive = 0;
 
   constructor(
     private readonly state: GameState,
     private readonly level: LevelDef,
     private readonly events: SimulationEvents,
     settings: RoundSettings,
+    lobby = false,
   ) {
-    this.difficulty = settings.difficulty;
-    this.duration = settings.duration;
-    this.waveLength = waveLength(settings.duration);
-    this.maxAlive = Math.min(MAX_ZOMBIES_ALIVE, settings.difficulty.maxAlive);
+    this.configure(settings);
     this.colliders = buildColliders(level);
     this.flow = new FlowField(level.halfSize + 10, this.colliders, 0.45);
     const limit = level.halfSize - RESPAWN_MARGIN;
@@ -118,16 +117,24 @@ export class Simulation {
         if (!this.colliders.some((box) => pointInBox(box, x, z, 1))) this.respawnPoints.push({ x, z });
       }
     }
-    this.reset();
+    this.reset(lobby);
   }
 
-  reset() {
-    this.state.levelId = this.level.id;
+  configure(settings: RoundSettings) {
+    this.difficulty = settings.difficulty;
+    this.duration = settings.duration;
+    this.waveLength = waveLength(settings.duration);
+    this.maxAlive = Math.min(MAX_ZOMBIES_ALIVE, settings.difficulty.maxAlive);
     this.state.duration = this.duration;
     this.state.difficulty = this.difficulty.id;
     this.state.scoreStar = starScore(this.level.scoreStarPerMinute, this.difficulty, this.duration);
-    this.state.phase = "countdown";
-    this.state.timer = COUNTDOWN_SECONDS;
+  }
+
+  /** Starts over with a countdown, or waits in the lobby until start(). */
+  reset(lobby = false) {
+    this.state.levelId = this.level.id;
+    this.state.phase = lobby ? "lobby" : "countdown";
+    this.state.timer = lobby ? 0 : COUNTDOWN_SECONDS;
     this.state.wave = 0;
     this.state.stars = 0;
     this.state.zombies.clear();
@@ -256,8 +263,14 @@ export class Simulation {
     this.state.teamScore = total;
   }
 
+  start() {
+    if (this.state.phase !== "lobby") return;
+    this.state.phase = "countdown";
+    this.state.timer = LOBBY_COUNTDOWN_SECONDS;
+  }
+
   tick(dt: number) {
-    if (this.state.paused || this.state.phase === "ended") return;
+    if (this.state.paused || this.state.phase === "ended" || this.state.phase === "lobby") return;
     this.time += dt;
     this.state.timer = Math.max(0, this.state.timer - dt);
     this.updatePlayers(dt);

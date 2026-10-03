@@ -14,7 +14,7 @@ const testDuration = debug ? Number(params.get("duration")) || undefined : undef
 
 const QUALITIES: Quality[] = ["low", "medium", "high", "ultra"];
 const requestedQuality = params.get("quality") as Quality | null;
-const quality = requestedQuality && QUALITIES.includes(requestedQuality) ? requestedQuality : "high";
+const quality = requestedQuality && QUALITIES.includes(requestedQuality) ? requestedQuality : "medium";
 
 const game = new Game(canvas, ui, quality);
 if (debug) Object.assign(window, { game });
@@ -33,7 +33,7 @@ async function play(invite: string | null, error?: string) {
   try {
     await game.connect(name, choice, settings, testDuration);
     if (choice.mode !== "solo") history.replaceState(null, "", `/join/${game.network.sessionCode}${location.search}`);
-    game.input.lock();
+    if (!game.inLobby) game.input.lock();
   } catch (err) {
     console.error(err);
     void play(

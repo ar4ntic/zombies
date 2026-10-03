@@ -92,6 +92,7 @@ export class GameRoom {
         ammoRefill: (weapon, amount) => this.broadcast("ammo", { weapon, amount }),
       },
       { difficulty: DIFFICULTIES[options.difficulty], duration: options.duration },
+      !options.solo,
     );
     this.unusedTimer = setTimeout(() => this.dispose(), UNUSED_SESSION_MS);
   }
@@ -109,6 +110,7 @@ export class GameRoom {
       minutes: this.state.duration / 60,
       duration: this.state.duration,
       players: this.clients.size,
+      phase: this.state.phase,
     };
   }
 
@@ -218,10 +220,30 @@ export class GameRoom {
       case "pause":
         if (this.state.solo) this.state.paused = !!msg?.paused;
         break;
+      case "settings": {
+        if (!this.hostInLobby(client)) return this.reject(client, "Only the host can change the settings in the lobby");
+        const difficulty: unknown = msg?.difficulty ?? this.state.difficulty;
+        const minutes: unknown = msg?.minutes ?? this.state.duration / 60;
+        if (!isDifficulty(difficulty) || !isRoundMinutes(minutes)) return this.reject(client, "Unknown settings");
+        this.sim.configure({ difficulty: DIFFICULTIES[difficulty], duration: minutes * 60 });
+        break;
+      }
+      case "start":
+        if (!this.hostInLobby(client)) return this.reject(client, "Only the host can start the game");
+        this.sim.start();
+        break;
       case "restart":
-        if (this.state.phase === "ended" && client.id === this.state.hostId) this.sim.reset();
+        if (this.state.phase === "ended" && client.id === this.state.hostId) this.sim.reset(!this.state.solo);
         break;
     }
+  }
+
+  private hostInLobby(client: RoomClient): boolean {
+    return this.state.phase === "lobby" && client.id === this.state.hostId;
+  }
+
+  private reject(client: RoomClient, message: string) {
+    if (client.socket) this.send(client.socket, "error", { message });
   }
 
   private start() {

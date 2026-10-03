@@ -42,6 +42,12 @@ export interface PauseMessage {
   paused: boolean;
 }
 
+/** Host-only, in the lobby of a team session. Missing fields keep their current value. */
+export interface SettingsMessage {
+  difficulty?: DifficultyId;
+  minutes?: number;
+}
+
 /** Server -> client broadcasts. */
 export interface ShotEvent {
   by: string;
@@ -98,6 +104,9 @@ export interface ClientMessages {
   shoot: ShootMessage;
   weapon: SwitchWeaponMessage;
   pause: PauseMessage;
+  settings: SettingsMessage;
+  start: Record<string, never>;
+  /** Back to the lobby in team sessions, a new round in solo. */
   restart: Record<string, never>;
 }
 
@@ -139,6 +148,7 @@ export interface SessionInfo {
   minutes: number;
   duration: number;
   players: number;
+  phase: string;
 }
 
 export interface LeaderboardEntry {

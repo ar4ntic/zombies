@@ -1,4 +1,5 @@
-// Checks session options and a two-client team session, then plays a solo round over the network with perfect aim.
+// Checks session options, a two-client team session and the team lobby (including a 1-minute team round),
+// then plays a solo round over the network with perfect aim.
 // Usage: pnpm smoke [url] [roundSeconds | --minutes=N] [--difficulty=normal] [--die] [--human | --still]
 // --minutes plays a standard-length round, which also shows up on the leaderboard (checked at the end).
 // --die holds fire until the bot is knocked out once, to exercise death, penalty and respawn.
@@ -182,8 +183,89 @@ async function checkTeam() {
   );
 }
 
+async function waitFor(what, check, ms = 5000) {
+  for (const end = Date.now() + ms; Date.now() < end; await sleep(50)) if (check()) return true;
+  failures.push(`timed out waiting for ${what}`);
+  return false;
+}
+
+/** Shoots the nearest zombie, like the solo bot with perfect aim. */
+function fire(session) {
+  const s = session.state;
+  const me = s.players.get(session.sessionId);
+  if (!me || me.dead || s.phase !== "playing") return;
+  let best;
+  for (const [id, z] of s.zombies) {
+    const d = Math.hypot(z.x - me.x, z.z - me.z);
+    if (d < 55 && (!best || d < best.d)) best = { id, z, d };
+  }
+  if (best) session.send("shoot", { weapon: "rifle", origin: [me.x, 1.5, me.z], end: [best.z.x, 1.5, best.z.z], hit: { zombie: best.id, head: false } });
+}
+
+async function checkLobby() {
+  const before = failures.length;
+  const host = await Session.create({ name: "Host", difficulty: "normal", minutes: 3 });
+  const hostErrors = [];
+  host.onMessage("error", (e) => hostErrors.push(e.message));
+  await sleep(1500);
+  const lobby = (s) => s.state.phase === "lobby" && s.state.zombies.size === 0 && s.state.timer === 0 && s.state.wave === 0;
+  if (!lobby(host)) failures.push(`team session not waiting in the lobby (${host.state.phase}, timer ${host.state.timer}, ${host.state.zombies.size} zombies)`);
+  const info = await api(`/api/sessions/${host.code}`);
+  if (info.body?.phase !== "lobby") failures.push(`session info phase ${info.body?.phase}`);
+
+  const guest = await Session.join(host.code, "Guest");
+  const guestErrors = [];
+  guest.onMessage("error", (e) => guestErrors.push(e.message));
+  await waitFor("guest in the lobby", () => lobby(guest) && guest.state.players.size === 2);
+
+  guest.send("start", {});
+  guest.send("settings", { difficulty: "hard", minutes: 10 });
+  host.send("settings", { difficulty: "bogus", minutes: 2 });
+  await waitFor("rejections", () => guestErrors.length === 2 && hostErrors.length === 1);
+  await sleep(300);
+  if (!lobby(host) || host.state.difficulty !== "normal" || host.state.duration !== 180) failures.push("non-host start/settings or invalid settings accepted");
+
+  const star = host.state.scoreStar;
+  host.send("settings", { difficulty: "easy" });
+  host.send("settings", { minutes: 1 });
+  await waitFor("guest to see the new settings", () => guest.state.difficulty === "easy" && guest.state.duration === 60);
+  if (guest.state.scoreStar === star || !lobby(guest)) failures.push("settings change did not update the star score or left the lobby");
+
+  host.send("start", {});
+  await waitFor("countdown", () => guest.state.phase === "countdown");
+  const countdown = guest.state.timer;
+  if (countdown > 3) failures.push(`lobby countdown ${countdown}s`);
+  await waitFor("round start", () => guest.state.phase === "playing", 5000);
+
+  const kills = new Map([[host, 0], [guest, 0]]);
+  for (const s of kills.keys()) s.onMessage("kill", (e) => e.by === s.sessionId && kills.set(s, kills.get(s) + 1));
+  const shooting = setInterval(() => kills.forEach((_, s) => fire(s)), 150);
+  await waitFor("round end", () => host.state.phase === "ended" && guest.state.phase === "ended", 75_000);
+  clearInterval(shooting);
+  const score = host.state.teamScore;
+  console.log(`lobby round: ${host.state.difficulty} ${host.state.duration}s, team score ${score}, kills host=${kills.get(host)} guest=${kills.get(guest)}`);
+  if (!kills.get(host) || !kills.get(guest)) failures.push("a lobby player scored no kills");
+
+  guest.send("restart", {});
+  await sleep(500);
+  if (guest.state.phase !== "ended") failures.push("non-host restart accepted");
+  host.send("restart", {});
+  await waitFor("both back in the lobby", () => lobby(host) && lobby(guest));
+  const scores = [...guest.state.players.values()].map((p) => p.score);
+  if (scores.some((s) => s !== 0) || guest.state.teamScore !== 0) failures.push("scores not reset in the lobby");
+  if (guest.state.difficulty !== "easy" || guest.state.duration !== 60) failures.push("lobby forgot the settings");
+
+  host.send("start", {});
+  await waitFor("second round", () => host.state.phase === "playing", 6000);
+  const late = await Session.join(host.code, "Late");
+  if (late.state.phase !== "playing" || late.state.players.size !== 3) failures.push(`late joiner saw ${late.state.phase} with ${late.state.players.size} players`);
+  for (const s of [late, guest, host]) s.leave();
+  console.log(`lobby: code=${host.code} waits, settings host-only, start host-only, play again -> lobby, late join -> playing, ok=${failures.length === before}`);
+}
+
 await checkSessions();
 await checkTeam();
+await checkLobby();
 
 const playerId = crypto.randomUUID();
 const room = await Session.create({ name: "Bot", playerId, solo: true, difficulty, ...(minutes ? { minutes } : { duration }) });

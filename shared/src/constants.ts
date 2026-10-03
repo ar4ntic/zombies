@@ -18,6 +18,8 @@ export const SPAWN_PROTECTION_SECONDS = 3;
 export const DEATH_PENALTY = 500;
 
 export const COUNTDOWN_SECONDS = 5;
+/** Countdown after the host starts a team round from the lobby. */
+export const LOBBY_COUNTDOWN_SECONDS = 3;
 /** Pause between clearing a wave early and the next wave. */
 export const WAVE_BREAK_SECONDS = 4;
 /** The next wave starts ahead of schedule once no more than this many zombies are left. */
