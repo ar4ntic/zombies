@@ -60,10 +60,10 @@ export function loadTemplate(name: string): Promise<CharacterTemplate> {
   return t;
 }
 
-export async function preloadCast(): Promise<void> {
+export async function preloadCast(): Promise<CharacterTemplate[]> {
   const m = await loadManifest();
   const names = new Set(Object.values(m.characters).flat());
-  await Promise.all([...names].map(loadTemplate));
+  return Promise.all([...names].map(loadTemplate));
 }
 
 function buildTemplate(name: string, m: Manifest, scene: Group, animations: AnimationClip[]): CharacterTemplate {

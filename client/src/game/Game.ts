@@ -118,7 +118,8 @@ export class Game {
   }
 
   async load() {
-    await Promise.all([this.world.load(this.renderer.shadowMapSize), preloadCast()]);
+    const [, cast] = await Promise.all([this.world.load(this.renderer.shadowMapSize), preloadCast()]);
+    await this.zombies.warmUp(this.renderer.webgl, cast);
     this.player.update(0, false);
     this.timer.connect(document);
     this.renderer.webgl.setAnimationLoop((time) => this.frame(time));

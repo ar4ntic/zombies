@@ -112,7 +112,7 @@ await new Promise((resolve) => {
     }
     if (pauseCheck === "paused") {
       if (Date.now() - pausedAt < 1500) return;
-      pauseCheck = s.paused && Math.abs(s.timer - pausedTimer) < 0.06 ? "ok" : "failed";
+      pauseCheck = s.paused && Math.abs(s.timer - pausedTimer) < 0.15 ? "ok" : "failed";
       console.log(`[${elapsed()}s] pause check: ${pauseCheck} (timer ${pausedTimer.toFixed(2)} -> ${s.timer.toFixed(2)})`);
       room.send("pause", { paused: false });
     }

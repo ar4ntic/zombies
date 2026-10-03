@@ -27,6 +27,15 @@ pnpm typecheck
 
 Append `?quality=low|medium|high|ultra` to the URL to override the graphics preset.
 
+Smoke test against a running server (session option checks plus one bot-played solo round):
+
+```bash
+pnpm smoke http://localhost:8080 60 --difficulty=nightmare --die   # round length in seconds
+```
+
+`--die` lets the bot get knocked out once to check the penalty and respawn; `--human` and
+`--still` play like a decent (kiting or stationary) player, for tuning the star scores.
+
 ## Project layout
 
 - `client/` - Three.js game, menus and HUD (Vite)

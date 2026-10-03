@@ -81,7 +81,7 @@ export const PARKING_LOT: LevelDef = {
     { zombies: { walker: 18, runner: 8, brute: 2 }, spawnInterval: 0.9 },
     { zombies: { walker: 22, runner: 12, brute: 3 }, spawnInterval: 0.7 },
   ],
-  scoreStarPerMinute: 6000,
+  scoreStarPerMinute: 8000,
 };
 
 export const LEVELS: Record<string, LevelDef> = {

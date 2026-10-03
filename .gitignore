@@ -3,5 +3,7 @@ dist/
 data/
 .asset-cache/
 .env
+.dev.vars
+.wrangler/
 *.log
 .DS_Store

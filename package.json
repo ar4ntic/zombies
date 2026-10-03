@@ -9,15 +9,19 @@
     "dev": "pnpm --parallel --filter ./client --filter ./server dev",
     "build": "pnpm --filter ./client build && pnpm --filter ./server build",
     "start": "pnpm --filter ./server start",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm -r typecheck && tsc -p functions",
+    "pages:dev": "wrangler pages dev --port 8788",
     "assets": "node scripts/fetch-assets.mjs",
     "smoke": "node client/scripts/smoke-bot.mjs"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261003.1",
     "@gltf-transform/cli": "^4.5.1",
     "@gltf-transform/core": "^4.5.1",
     "@gltf-transform/extensions": "^4.5.1",
     "meshoptimizer": "^1.3.0",
-    "sharp": "^0.35.5"
+    "sharp": "^0.35.5",
+    "typescript": "~5.9.3",
+    "wrangler": "^4.147.0"
   }
 }

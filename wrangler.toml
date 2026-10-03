@@ -1,0 +1,9 @@
+name = "zombies"
+pages_build_output_dir = "client/dist"
+compatibility_date = "2026-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "zombies"
+database_id = "167a7efb-0434-4c7b-8c91-bdb59f8bc82a"
+migrations_dir = "migrations"

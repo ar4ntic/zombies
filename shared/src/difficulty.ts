@@ -29,7 +29,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyDef> = {
     brutes: 0.5,
     points: 0.75,
     respawnSeconds: 3,
-    starScale: 0.6,
+    starScale: 1.3,
   },
   normal: {
     id: "normal",
@@ -55,7 +55,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyDef> = {
     brutes: 1.6,
     points: 1.5,
     respawnSeconds: 6,
-    starScale: 1.3,
+    starScale: 1,
   },
   nightmare: {
     id: "nightmare",
@@ -68,7 +68,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyDef> = {
     brutes: 2.5,
     points: 2,
     respawnSeconds: 7,
-    starScale: 1.5,
+    starScale: 0.65,
   },
 };
 

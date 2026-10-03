@@ -1,6 +1,18 @@
-import { Color, Frustum, Matrix4, Sphere, Vector3, type PerspectiveCamera, type Scene } from "three";
+import {
+  Color,
+  Frustum,
+  Matrix4,
+  Sphere,
+  Vector3,
+  type Mesh,
+  type MeshStandardMaterial,
+  type PerspectiveCamera,
+  type Scene,
+  type WebGLRenderer,
+} from "three";
 import { ZOMBIES, type ZombieState } from "@zombies/shared";
 import type { Particles } from "../fx/Particles.ts";
+import type { CharacterTemplate } from "./cast.ts";
 import { ZombieView } from "./ZombieView.ts";
 
 const DEATH_COLOR = new Color("#8dff6e");
@@ -35,6 +47,23 @@ export class ZombieManager {
     private readonly camera: PerspectiveCamera,
     private readonly particles: Particles,
   ) {}
+
+  /** Uploads every character's textures and compiles the zombie shaders up front, so first sightings don't stall. */
+  async warmUp(renderer: WebGLRenderer, templates: CharacterTemplate[]) {
+    for (const template of templates) {
+      template.scene.traverse((child) => {
+        const material = (child as Mesh).material as MeshStandardMaterial | MeshStandardMaterial[] | undefined;
+        for (const m of [material ?? []].flat()) {
+          for (const texture of [m.map, m.normalMap, m.roughnessMap, m.metalnessMap, m.emissiveMap, m.aoMap]) {
+            if (texture) renderer.initTexture(texture);
+          }
+        }
+      });
+    }
+    const view = await ZombieView.create(this.scene, "warmup", { type: "walker", x: 0, z: 0, rot: 0, anim: 0 } as ZombieState);
+    await renderer.compileAsync(this.scene, this.camera);
+    view.dispose();
+  }
 
   add(id: string, state: ZombieState) {
     const entry: Entry = { removed: false };
