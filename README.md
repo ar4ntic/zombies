@@ -28,8 +28,14 @@ pnpm build
 npx wrangler dev            # serves client/dist and the API on http://localhost:8787
 ```
 
-Append `?quality=low|medium|high|ultra` to the URL to override the graphics preset.
-With `?debug` the game is exposed as `window.game`, and `?debug&duration=N` makes solo rounds N seconds long.
+Graphics are chosen in the main menu or the in-game menu (Auto, Low, Medium, High, Ultra; stored in
+localStorage). Auto scales the render resolution to hold the display refresh rate (at most 60 fps) and
+drops ambient occlusion, bloom and shadow resolution only when the resolution is already at its minimum.
+Append `?quality=auto|low|medium|high|ultra` to the URL to override the setting.
+
+Press F3 for the performance overlay (fps, frame times, CPU/GPU time, render resolution, draw calls,
+triangles). With `?debug` the overlay starts visible, the game is exposed as `window.game`, and
+`?debug&duration=N` makes solo rounds N seconds long.
 
 ## Smoke test
 
@@ -65,6 +71,9 @@ and never show up on leaderboards.
 - `worker/` - Cloudflare Worker: HTTP API, `GameSession` Durable Object, simulation, D1 scores
 - `shared/` - state schema, messages and constants used by both
 - `migrations/` - D1 schema
-- `scripts/fetch-assets.mjs` - downloads and optimizes third-party art (`pnpm assets`)
+- `scripts/fetch-assets.mjs` - downloads and optimizes third-party art (`pnpm assets`; add
+  `-- --rebuild-models` to re-simplify the models from `.asset-cache` without downloading them again)
+- `scripts/zombie-lods.mjs` - adds the two simplified LOD meshes to the zombie characters
+  (`node scripts/zombie-lods.mjs`, safe to re-run)
 
 Art credits are listed in `client/public/assets/CREDITS.txt`.

@@ -238,13 +238,18 @@ async function checkLobby() {
   await waitFor("round start", () => guest.state.phase === "playing", 5000);
 
   const kills = new Map([[host, 0], [guest, 0]]);
-  for (const s of kills.keys()) s.onMessage("kill", (e) => e.by === s.sessionId && kills.set(s, kills.get(s) + 1));
+  const hits = new Map([[host, 0], [guest, 0]]);
+  for (const s of kills.keys()) {
+    s.onMessage("kill", (e) => e.by === s.sessionId && kills.set(s, kills.get(s) + 1));
+    s.onMessage("zombieHit", (e) => e.by === s.sessionId && hits.set(s, hits.get(s) + 1));
+  }
   const shooting = setInterval(() => kills.forEach((_, s) => fire(s)), 150);
   await waitFor("round end", () => host.state.phase === "ended" && guest.state.phase === "ended", 75_000);
   clearInterval(shooting);
   const score = host.state.teamScore;
-  console.log(`lobby round: ${host.state.difficulty} ${host.state.duration}s, team score ${score}, kills host=${kills.get(host)} guest=${kills.get(guest)}`);
-  if (!kills.get(host) || !kills.get(guest)) failures.push("a lobby player scored no kills");
+  console.log(`lobby round: ${host.state.difficulty} ${host.state.duration}s, team score ${score}, kills host=${kills.get(host)} guest=${kills.get(guest)}, hits host=${hits.get(host)} guest=${hits.get(guest)}`);
+  if (!kills.get(host) && !kills.get(guest)) failures.push("nobody scored a kill in the lobby round");
+  if (!hits.get(host) || !hits.get(guest)) failures.push("a lobby player landed no hits");
 
   guest.send("restart", {});
   await sleep(500);

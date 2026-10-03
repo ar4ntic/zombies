@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Downloads third-party art assets and converts them into web-ready files under
-// client/public/assets. Re-run with --force to re-download everything.
+// client/public/assets. Re-run with --force to re-download everything, or with
+// --rebuild-models to re-optimize the models from the cached downloads.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -11,6 +12,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const out = join(root, "client/public/assets");
 const cache = join(root, ".asset-cache");
 const force = process.argv.includes("--force");
+const rebuildModels = process.argv.includes("--rebuild-models");
 const gltfTransform = join(root, "node_modules/.bin/gltf-transform");
 
 const HDRIS = [{ id: "suburban_parking_area", res: "2k" }];
@@ -23,24 +25,30 @@ const TEXTURES = [
   "painted_plaster_wall",
 ];
 
+/**
+ * Poly Haven models are film quality (up to ~80k triangles). Simplification error is a fraction
+ * of the mesh extent; the defaults keep props at a few thousand triangles without visible loss
+ * at game distance.
+ */
+const SIMPLIFY_ERROR = 0.001;
 const MODELS = [
-  "barrel_03",
-  "wooden_crate_02",
-  "concrete_road_barrier",
-  "street_lamp_01",
-  "metal_trash_can",
-  "fire_hydrant",
-  "covered_car",
-  "utility_box_01",
-  "modular_chainlink_fence",
-  "old_military_crate",
-  "ammo_box",
-  "medical_box",
-  "portable_generator",
-  "trashbag",
-  "cardboard_box_01",
-  "dead_tree_trunk",
-  "wooden_picnic_table",
+  ["barrel_03"],
+  ["wooden_crate_02"],
+  ["concrete_road_barrier", 0.0015],
+  ["street_lamp_01"],
+  ["metal_trash_can", 0.003],
+  ["fire_hydrant", 0.004],
+  ["covered_car"],
+  ["utility_box_01"],
+  ["modular_chainlink_fence", 0.002],
+  ["old_military_crate", 0.002],
+  ["ammo_box"],
+  ["medical_box"],
+  ["portable_generator", 0.003],
+  ["trashbag", 0.002],
+  ["cardboard_box_01", 0.002],
+  ["dead_tree_trunk"],
+  ["wooden_picnic_table"],
 ];
 
 const credits = [];
@@ -90,19 +98,19 @@ async function fetchTexture(id) {
   console.log("  converted", id);
 }
 
-async function fetchModel(id) {
+async function fetchModel([id, simplifyError = SIMPLIFY_ERROR]) {
   const dest = join(out, "models", `${id}.glb`);
   await polyhavenCredit(id);
-  if (existsSync(dest) && !force) return;
-  const files = await polyhavenFiles(id);
-  const gltf = files.gltf["1k"].gltf;
   const srcDir = join(cache, "models", id);
   const srcFile = join(srcDir, `${id}.gltf`);
+  if (existsSync(dest) && !force && !(rebuildModels && existsSync(srcFile))) return;
+  const files = await polyhavenFiles(id);
+  const gltf = files.gltf["1k"].gltf;
   await download(gltf.url, srcFile);
   for (const [rel, file] of Object.entries(gltf.include)) {
     await download(file.url, join(srcDir, rel));
   }
-  optimize(srcFile, dest, ["--texture-size", "1024"]);
+  optimize(srcFile, dest, ["--texture-size", "1024", "--simplify-error", String(simplifyError)]);
 }
 
 function optimize(src, dest, extra) {

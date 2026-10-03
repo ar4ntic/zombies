@@ -12,6 +12,7 @@ import {
 import type { Game } from "../game/Game.ts";
 import { Leaderboard } from "./Leaderboard.ts";
 import { Lobby } from "./Lobby.ts";
+import { changeGraphics, graphicsSelector, selectSegment } from "./Menu.ts";
 
 const HURT_FADE = 1.6;
 
@@ -34,6 +35,7 @@ export class Hud {
   private readonly el: HTMLElement;
   private readonly $: Record<string, HTMLElement> = {};
   private readonly cache = new Map<HTMLElement, string>();
+  private readonly styles = new Map<string, string>();
   private hurt = 0;
   private ghostHp = 100;
   private hitTimer = 0;
@@ -114,6 +116,7 @@ export class Hud {
           <button class="danger" data-ref="leaveYes">Yes</button>
           <button data-ref="leaveNo">Cancel</button>
         </div>
+        <div class="pause-graphics" data-ref="graphics">${graphicsSelector(game.graphics)}</div>
         <p class="invite" data-ref="invite"></p>
         <div class="controls">
           <span><kbd>W A S D</kbd> / <kbd>Arrows</kbd> move</span>
@@ -171,6 +174,12 @@ export class Hud {
     this.$.leave!.addEventListener("click", () => this.confirmLeave(true));
     this.$.leaveNo!.addEventListener("click", () => this.confirmLeave(false));
     this.$.leaveYes!.addEventListener("click", () => game.leave());
+    this.$.graphics!.addEventListener("click", (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>(".segmented button");
+      if (!button) return;
+      selectSegment(button.parentElement!, button.dataset.value!);
+      changeGraphics(game, button.dataset.value!);
+    });
     this.$.again!.addEventListener("click", () => game.restart());
     this.$.menu!.addEventListener("click", () => game.leave());
   }
@@ -190,6 +199,17 @@ export class Hud {
     this.cache.set(el, text);
     if (html) el.innerHTML = text;
     else el.textContent = text;
+  }
+
+  private setStyle(key: string, property: string, value: string) {
+    const id = `${key}:${property}`;
+    if (this.styles.get(id) === value) return;
+    this.styles.set(id, value);
+    this.$[key]!.style.setProperty(property, value);
+  }
+
+  private setHidden(el: HTMLElement, hidden: boolean) {
+    if (el.hidden !== hidden) el.hidden = hidden;
   }
 
   hitmarker(head: boolean) {
@@ -336,7 +356,7 @@ export class Hud {
     this.updateCrosshair();
 
     this.hurt = Math.max(0, this.hurt - dt / HURT_FADE);
-    this.$.hurt!.style.opacity = String(this.hurt);
+    this.setStyle("hurt", "opacity", this.hurt.toFixed(2));
     this.$.lowhp!.classList.toggle("on", !me.dead && me.hp < 35);
 
     if ((this.hitTimer -= dt) <= 0) this.$.hitmarker!.classList.remove("show");
@@ -345,7 +365,7 @@ export class Hud {
 
     const inLobby = game.inLobby && !this.lost;
     if (this.lobby) {
-      this.lobby.el.hidden = !inLobby;
+      this.setHidden(this.lobby.el, !inLobby);
       if (inLobby) this.lobby.update();
     }
     const countdown = state.phase === "countdown" && !state.solo ? Math.ceil(state.timer) : 0;
@@ -355,7 +375,7 @@ export class Hud {
     if (inLobby) this.started = false;
     const showPause = (!game.input.locked && !game.finished && !inLobby) || this.lost;
     if (showPause && this.$.pause!.hidden) this.confirmLeave(false);
-    this.$.pause!.hidden = !showPause;
+    this.setHidden(this.$.pause!, !showPause);
     const settings = settingsLabel(state.difficulty, state.duration);
     if (showPause && !this.lost) {
       const title = countdown > 0 ? `Starting in ${countdown}...` : "Ready?";
@@ -402,10 +422,10 @@ export class Hud {
 
   private updateHealth(me: PlayerState, dt: number) {
     const pct = me.dead ? 0 : (me.hp / PLAYER_MAX_HP) * 100;
-    this.$.hpFill!.style.width = `${pct}%`;
+    this.setStyle("hpFill", "width", `${pct.toFixed(1)}%`);
     this.$.hpFill!.classList.toggle("low", pct < 35);
     this.ghostHp = Math.max(pct, MathUtils.damp(this.ghostHp, pct, 3, dt));
-    this.$.hpGhost!.style.width = `${this.ghostHp}%`;
+    this.setStyle("hpGhost", "width", `${this.ghostHp.toFixed(1)}%`);
     this.set("hpNum", me.dead ? "KO" : String(me.hp));
   }
 
@@ -419,7 +439,7 @@ export class Hud {
     this.$.mag!.classList.toggle("low", w.magazine > 0 && w.magazine <= Math.ceil(def.magazine / 4));
     const reload = w.reloadProgress;
     this.$.reloadBar!.classList.toggle("on", reload >= 0);
-    if (reload >= 0) this.$.reloadFill!.style.width = `${reload * 100}%`;
+    if (reload >= 0) this.setStyle("reloadFill", "width", `${(reload * 100).toFixed(1)}%`);
     this.$.slot1!.classList.toggle("active", w.current === "pistol");
     this.$.slot2!.classList.toggle("active", w.current === "rifle");
   }
@@ -439,6 +459,6 @@ export class Hud {
     if (hidden) return;
     const halfFov = MathUtils.degToRad(game.fov / 2);
     const gap = 4 + (Math.tan(game.weapons.spread) / Math.tan(halfFov)) * (window.innerHeight / 2);
-    el.style.setProperty("--gap", `${Math.min(60, gap).toFixed(1)}px`);
+    this.setStyle("crosshair", "--gap", `${Math.min(60, gap).toFixed(1)}px`);
   }
 }

@@ -1,7 +1,12 @@
 import {
+  CanvasTexture,
   Color,
   Frustum,
+  InstancedMesh,
+  MathUtils,
   Matrix4,
+  MeshBasicMaterial,
+  PlaneGeometry,
   Sphere,
   Vector3,
   type Mesh,
@@ -16,10 +21,38 @@ import type { CharacterTemplate } from "./cast.ts";
 import { ZombieView } from "./ZombieView.ts";
 
 const DEATH_COLOR = new Color("#8dff6e");
-const SHADOW_DISTANCE = 28;
+/** Real shadows within this distance (times zombie scale), blob shadows beyond. */
+const SHADOW_DISTANCE = 16;
 const NEAR_DISTANCE = 14;
 const FAR_DISTANCE = 32;
+/** Switch distances to LOD 1 and LOD 2 at the default field of view. */
+const LOD_DISTANCES = [9, 22];
+const LOD_HYSTERESIS = 1;
+const MAX_BLOBS = 128;
+const TAN_HALF_BASE_FOV = Math.tan(MathUtils.degToRad(75 / 2));
 const UPRIGHT = ZOMBIES.walker.hitbox;
+
+function levelFor(distance: number, current: number): number {
+  let level = 0;
+  LOD_DISTANCES.forEach((d, i) => {
+    if (distance > d + (current > i ? -LOD_HYSTERESIS : LOD_HYSTERESIS)) level = i + 1;
+  });
+  return level;
+}
+
+function blobTexture(): CanvasTexture {
+  const size = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  gradient.addColorStop(0, "rgba(0,0,0,0.6)");
+  gradient.addColorStop(0.5, "rgba(0,0,0,0.35)");
+  gradient.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  return new CanvasTexture(canvas);
+}
 
 export interface ZombieRayHit {
   id: string;
@@ -41,12 +74,26 @@ export class ZombieManager {
   private readonly frustum = new Frustum();
   private readonly projScreen = new Matrix4();
   private readonly sphere = new Sphere();
+  private readonly blobs: InstancedMesh;
+  private readonly blobMatrix = new Matrix4();
+  /** False when the renderer has shadows off; every zombie then gets a blob shadow. */
+  shadows = true;
 
   constructor(
     private readonly scene: Scene,
     private readonly camera: PerspectiveCamera,
     private readonly particles: Particles,
-  ) {}
+  ) {
+    this.blobs = new InstancedMesh(
+      new PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+      new MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
+      MAX_BLOBS,
+    );
+    this.blobs.count = 0;
+    this.blobs.frustumCulled = false;
+    this.blobs.matrixAutoUpdate = false;
+    scene.add(this.blobs);
+  }
 
   /** Uploads every character's textures and compiles the zombie shaders up front, so first sightings don't stall. */
   async warmUp(renderer: WebGLRenderer, templates: CharacterTemplate[]) {
@@ -115,7 +162,9 @@ export class ZombieManager {
     this.projScreen.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.projScreen);
     const eye = this.camera.position;
+    const zoom = Math.tan(MathUtils.degToRad(this.camera.fov / 2)) / TAN_HALF_BASE_FOV;
 
+    let blobs = 0;
     for (const { view } of this.entries.values()) {
       if (!view) continue;
       const distance = view.position.distanceTo(eye);
@@ -126,9 +175,17 @@ export class ZombieManager {
       if (!visible) step = distance > FAR_DISTANCE ? 1 / 8 : 1 / 15;
       else if (distance > FAR_DISTANCE) step = 1 / 20;
       else if (distance > NEAR_DISTANCE) step = 1 / 40;
-      view.setShadows(distance < SHADOW_DISTANCE * view.scale);
+      view.setLevel(levelFor((distance * zoom) / view.scale, view.level));
+      view.setShadows(this.shadows && distance < SHADOW_DISTANCE * view.scale);
       view.update(dt, step);
+      if (!view.castsShadow && !view.dying && blobs < MAX_BLOBS) {
+        const size = 1.1 * view.scale;
+        this.blobMatrix.makeScale(size, 1, size).setPosition(view.root.position.x, 0.02, view.root.position.z);
+        this.blobs.setMatrixAt(blobs++, this.blobMatrix);
+      }
     }
+    this.blobs.count = blobs;
+    this.blobs.instanceMatrix.needsUpdate = blobs > 0;
 
     for (let i = this.dying.length - 1; i >= 0; i--) {
       const view = this.dying[i]!;

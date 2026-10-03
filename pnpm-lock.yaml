@@ -20,6 +20,9 @@ importers:
       '@gltf-transform/extensions':
         specifier: ^4.5.1
         version: 4.5.1
+      '@gltf-transform/functions':
+        specifier: ^4.5.1
+        version: 4.5.1
       meshoptimizer:
         specifier: ^1.3.0
         version: 1.3.0

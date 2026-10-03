@@ -1,30 +1,54 @@
 import {
+  AdditiveBlending,
   Box3,
   BoxGeometry,
+  BufferAttribute,
+  BufferGeometry,
+  CanvasTexture,
   Color,
   DirectionalLight,
+  DoubleSide,
   FogExp2,
-  Group,
   HemisphereLight,
+  InstancedMesh,
+  Matrix4,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
   PointLight,
+  Quaternion,
   Scene,
+  Sphere,
   SphereGeometry,
   Vector3,
+  type Material,
   type Object3D,
   type Texture,
 } from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { LevelDef, StructurePlacement } from "@zombies/shared";
 import { loadHdri, loadModel, loadPbrTextures, type PbrTextureSet } from "../engine/assets.ts";
+import type { QualitySettings } from "../engine/Renderer.ts";
+
+/** Layer seen only by the sun's shadow camera: one merged, untextured mesh of all static casters. */
+const SHADOW_PROXY_LAYER = 1;
+/** Props smaller than this (bounding sphere radius in m) don't cast shadows. */
+const SMALL_PROP_RADIUS = 0.35;
+const LAMP_COLOR = new Color("#ffb46b");
+const POOL_COLOR = new Color("#ff8f3d");
+const UP = new Vector3(0, 1, 0);
 
 export class World {
   readonly scene = new Scene();
+  readonly sun = new DirectionalLight(new Color("#ffcf9e"), 2.6);
+  private readonly casters: BufferGeometry[] = [];
+  private readonly lampLights: PointLight[] = [];
+  private readonly lampPools: Mesh[] = [];
 
   constructor(private readonly level: LevelDef) {}
 
-  async load(shadowMapSize: number) {
+  async load() {
     const hdri = await loadHdri(this.level.hdri);
     this.scene.background = hdri;
     this.scene.environment = hdri;
@@ -32,17 +56,29 @@ export class World {
     this.scene.backgroundIntensity = 0.85;
     this.scene.fog = new FogExp2(new Color("#a58f80"), 0.009);
 
-    this.addLights(shadowMapSize);
+    this.addLights();
     await Promise.all([this.addGround(), this.addStructures(), this.addProps(), this.addStreetLamps()]);
+    this.addShadowProxy();
   }
 
-  private addLights(shadowMapSize: number) {
+  applyGraphics(settings: QualitySettings) {
+    const shadow = this.sun.shadow;
+    if (shadow.mapSize.x !== settings.shadowMapSize) {
+      shadow.mapSize.set(settings.shadowMapSize, settings.shadowMapSize);
+      shadow.map?.dispose();
+      shadow.map = null;
+    }
+    for (const light of this.lampLights) light.visible = settings.lampLights;
+    for (const pool of this.lampPools) pool.visible = !settings.lampLights;
+  }
+
+  private addLights() {
     const half = this.level.halfSize + 8;
-    const sun = new DirectionalLight(new Color("#ffcf9e"), 2.6);
+    const sun = this.sun;
     sun.position.set(-40, 28, -22);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
     Object.assign(sun.shadow.camera, { left: -half, right: half, top: half, bottom: -half, near: 1, far: 140 });
+    sun.shadow.camera.layers.enable(SHADOW_PROXY_LAYER);
     sun.shadow.bias = -0.0004;
     sun.shadow.normalBias = 0.03;
     sun.shadow.radius = 3;
@@ -61,70 +97,184 @@ export class World {
     const lot = new Mesh(new PlaneGeometry(size, size), pbrMaterial(lotTex));
     lot.rotation.x = -Math.PI / 2;
     lot.receiveShadow = true;
-    this.scene.add(lot);
+    this.addStatic(lot);
 
     const field = new Mesh(new PlaneGeometry(300, 300), pbrMaterial(outsideTex));
     field.rotation.x = -Math.PI / 2;
     field.position.y = -0.02;
     field.receiveShadow = true;
-    this.scene.add(field);
+    this.addStatic(field);
   }
 
+  /** Structures sharing a texture are merged into one mesh. */
   private async addStructures() {
-    const textures = new Map<string, Promise<PbrTextureSet>>();
+    const byTexture = new Map<string, StructurePlacement[]>();
+    for (const s of this.level.structures) byTexture.set(s.texture, [...(byTexture.get(s.texture) ?? []), s]);
     await Promise.all(
-      this.level.structures.map(async (s) => {
-        let set = textures.get(s.texture);
-        if (!set) {
-          set = loadPbrTextures(s.texture, 1);
-          textures.set(s.texture, set);
-        }
-        this.scene.add(structureMesh(s, await set));
+      [...byTexture].map(async ([texture, structures]) => {
+        const set = await loadPbrTextures(texture, 1);
+        const geometries = structures.map((s) => {
+          const geometry = structureGeometry(s);
+          this.casters.push(positionsOnly(geometry));
+          return geometry;
+        });
+        const mesh = new Mesh(mergeGeometries(geometries), pbrMaterial(set));
+        mesh.receiveShadow = true;
+        this.addStatic(mesh);
       }),
     );
   }
 
   private async addProps() {
-    await Promise.all(
-      this.level.props.map(async (prop) => {
-        const gltf = await loadModel(prop.model);
-        const object = gltf.scene.clone();
-        object.position.set(prop.x, 0, prop.z);
-        object.rotation.y = prop.rotation ?? 0;
-        enableShadows(object);
-        this.scene.add(object);
-      }),
-    );
+    const byModel = new Map<string, Matrix4[]>();
+    for (const prop of this.level.props) {
+      const matrix = placement(prop.x, prop.z, prop.rotation ?? 0);
+      byModel.set(prop.model, [...(byModel.get(prop.model) ?? []), matrix]);
+    }
+    await Promise.all([...byModel].map(async ([model, matrices]) => this.addInstances((await loadModel(model)).scene, matrices)));
+  }
+
+  /** Repeated props are drawn as one InstancedMesh per part; their shadows come from the proxy. */
+  private addInstances(template: Object3D, placements: Matrix4[]) {
+    template.updateMatrixWorld(true);
+    const radius = new Box3().setFromObject(template).getBoundingSphere(new Sphere()).radius;
+    const castsShadow = radius >= SMALL_PROP_RADIUS;
+    const matrix = new Matrix4();
+    template.traverse((child) => {
+      const part = child as Mesh;
+      if (!part.isMesh) return;
+      if (castsShadow) {
+        for (const p of placements) this.casters.push(positionsOnly(part.geometry, matrix.multiplyMatrices(p, part.matrixWorld)));
+      }
+      let mesh: Mesh;
+      if (placements.length === 1) {
+        mesh = new Mesh(part.geometry, part.material);
+        mesh.applyMatrix4(matrix.multiplyMatrices(placements[0]!, part.matrixWorld));
+      } else {
+        const instanced = new InstancedMesh(part.geometry, part.material as Material, placements.length);
+        placements.forEach((p, i) => instanced.setMatrixAt(i, matrix.multiplyMatrices(p, part.matrixWorld)));
+        instanced.computeBoundingSphere();
+        mesh = instanced;
+      }
+      mesh.receiveShadow = true;
+      this.addStatic(mesh);
+    });
   }
 
   private async addStreetLamps() {
     const gltf = await loadModel("street_lamp_01");
     const height = new Box3().setFromObject(gltf.scene).getSize(new Vector3()).y;
-    const bulbMaterial = new MeshStandardMaterial({ color: "#ffd9a0", emissive: "#ffb257", emissiveIntensity: 12 });
+    const bulbY = height - 0.35;
+    const lamps = this.level.lamps;
+    this.addInstances(
+      gltf.scene,
+      lamps.map(({ x, z, rotation }) => placement(x, z, rotation)),
+    );
 
-    for (const { x, z, rotation } of this.level.lamps) {
-      const lamp = new Group();
-      const model = gltf.scene.clone();
-      enableShadows(model);
-      lamp.add(model);
+    const bulbs = new InstancedMesh(
+      new SphereGeometry(0.12, 16, 8),
+      new MeshBasicMaterial({ color: new Color("#ffb257").multiplyScalar(12) }),
+      lamps.length,
+    );
+    const glow = glowTexture();
+    const groundPool = new PlaneGeometry(9, 9).rotateX(-Math.PI / 2);
+    lamps.forEach(({ x, z, rotation }, i) => {
+      bulbs.setMatrixAt(i, new Matrix4().makeTranslation(x, bulbY, z));
 
-      const bulb = new Mesh(new SphereGeometry(0.12, 16, 8), bulbMaterial);
-      bulb.position.set(0, height - 0.35, 0);
-      lamp.add(bulb);
+      const light = new PointLight(LAMP_COLOR, 30, 18, 1.6);
+      light.position.set(x, bulbY, z);
+      light.visible = false;
+      this.lampLights.push(light);
+      this.scene.add(light);
 
-      const light = new PointLight(new Color("#ffb46b"), 30, 18, 1.6);
-      light.position.copy(bulb.position);
-      lamp.add(light);
+      const ground = new Mesh(groundPool, poolMaterial(glow, 0.12));
+      ground.position.set(x, 0.015, z);
+      this.lampPools.push(ground);
+      this.addStatic(ground);
 
-      lamp.position.set(x, 0, z);
-      lamp.rotation.y = rotation;
-      this.scene.add(lamp);
+      const wall = this.wallPool(x, z, rotation, bulbY, glow);
+      if (wall) this.lampPools.push(wall);
+    });
+    bulbs.computeBoundingSphere();
+    this.addStatic(bulbs);
+  }
+
+  /** Warm light on the wall behind a lamp, where a real point light is most visible. */
+  private wallPool(x: number, z: number, rotation: number, bulbY: number, glow: Texture): Mesh | undefined {
+    const back = new Vector3(0, 0, -1).applyAxisAngle(UP, rotation).round();
+    const alongX = back.x === 0;
+    const distance = this.level.halfSize - Math.abs(alongX ? z : x);
+    if (distance > 4) return;
+    const probeX = x + back.x * (distance + 0.3);
+    const probeZ = z + back.z * (distance + 0.3);
+    const wall = this.level.structures.find(
+      (s) => !s.rotation && Math.abs(s.x - probeX) <= s.width / 2 && Math.abs(s.z - probeZ) <= s.depth / 2,
+    );
+    if (!wall) return;
+
+    // Clip the glow to the wall segment so it doesn't spill into the gate opening.
+    const size = 8;
+    const lampAlong = alongX ? x : z;
+    const wallCenter = alongX ? wall.x : wall.z;
+    const wallHalf = (alongX ? wall.width : wall.depth) / 2;
+    const from = Math.max(lampAlong - size / 2, wallCenter - wallHalf);
+    const to = Math.min(lampAlong + size / 2, wallCenter + wallHalf);
+    const centerY = Math.min(bulbY, wall.height);
+    const positions: number[] = [];
+    const uvs: number[] = [];
+    for (const [a, y] of [[from, 0], [to, 0], [from, wall.height], [to, wall.height]] as const) {
+      positions.push(alongX ? a : x + back.x * (distance - 0.01), y, alongX ? z + back.z * (distance - 0.01) : a);
+      uvs.push(0.5 + (a - lampAlong) / size, 0.5 + (y - centerY) / size);
     }
+    const geometry = new BufferGeometry()
+      .setAttribute("position", new BufferAttribute(new Float32Array(positions), 3))
+      .setAttribute("uv", new BufferAttribute(new Float32Array(uvs), 2));
+    geometry.setIndex([0, 1, 2, 2, 1, 3]);
+    const material = poolMaterial(glow, 0.45);
+    material.side = DoubleSide;
+    const mesh = new Mesh(geometry, material);
+    this.addStatic(mesh);
+    return mesh;
+  }
+
+  private addShadowProxy() {
+    const proxy = new Mesh(mergeGeometries(this.casters), new MeshBasicMaterial());
+    this.casters.length = 0;
+    proxy.castShadow = true;
+    proxy.frustumCulled = false;
+    proxy.layers.set(SHADOW_PROXY_LAYER);
+    this.addStatic(proxy);
+  }
+
+  private addStatic(object: Object3D) {
+    object.updateMatrix();
+    object.matrixAutoUpdate = false;
+    this.scene.add(object);
   }
 }
 
-/** Box with per-face UVs scaled so the texture tiles at a constant world size. */
-function structureMesh(s: StructurePlacement, set: PbrTextureSet): Mesh {
+function placement(x: number, z: number, rotation: number): Matrix4 {
+  return new Matrix4().compose(new Vector3(x, 0, z), new Quaternion().setFromAxisAngle(UP, rotation), new Vector3(1, 1, 1));
+}
+
+/** Float position + index copy in world space, for the merged shadow proxy. */
+function positionsOnly(geometry: BufferGeometry, matrix?: Matrix4): BufferGeometry {
+  const source = geometry.getAttribute("position");
+  const positions = new Float32Array(source.count * 3);
+  const v = new Vector3();
+  for (let i = 0; i < source.count; i++) {
+    v.fromBufferAttribute(source, i);
+    if (matrix) v.applyMatrix4(matrix);
+    v.toArray(positions, i * 3);
+  }
+  const result = new BufferGeometry().setAttribute("position", new BufferAttribute(positions, 3));
+  const index = geometry.getIndex();
+  if (index) result.setIndex(new BufferAttribute(new Uint32Array(index.array), 1));
+  return result;
+}
+
+/** World-space box with per-face UVs scaled so the texture tiles at a constant world size. */
+function structureGeometry(s: StructurePlacement): BufferGeometry {
   const tile = s.tile ?? 2;
   const geometry = new BoxGeometry(s.width, s.height, s.depth);
   const uv = geometry.getAttribute("uv");
@@ -144,12 +294,39 @@ function structureMesh(s: StructurePlacement, set: PbrTextureSet): Mesh {
       uv.setXY(idx, uv.getX(idx) * (u / tile), uv.getY(idx) * (v / tile));
     }
   }
-  const mesh = new Mesh(geometry, pbrMaterial(set));
-  mesh.position.set(s.x, s.height / 2, s.z);
-  mesh.rotation.y = s.rotation ?? 0;
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  return mesh;
+  geometry.rotateY(s.rotation ?? 0);
+  geometry.translate(s.x, s.height / 2, s.z);
+  return geometry;
+}
+
+function glowTexture(): Texture {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  gradient.addColorStop(0, "rgb(255,255,255)");
+  gradient.addColorStop(0.25, "rgb(130,130,130)");
+  gradient.addColorStop(0.55, "rgb(32,32,32)");
+  gradient.addColorStop(1, "rgb(0,0,0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  return new CanvasTexture(canvas);
+}
+
+/** Additive light pool, standing in for a point light that every PBR material would pay for. */
+function poolMaterial(map: Texture, strength: number): MeshBasicMaterial {
+  return new MeshBasicMaterial({
+    map,
+    color: POOL_COLOR.clone().multiplyScalar(strength),
+    transparent: true,
+    depthWrite: false,
+    fog: false,
+    blending: AdditiveBlending,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  });
 }
 
 const materialCache = new WeakMap<Texture, MeshStandardMaterial>();
@@ -168,13 +345,4 @@ function pbrMaterial(set: PbrTextureSet): MeshStandardMaterial {
   });
   materialCache.set(set.map, material);
   return material;
-}
-
-export function enableShadows(object: Object3D) {
-  object.traverse((child) => {
-    if ((child as Mesh).isMesh) {
-      child.castShadow = true;
-      child.receiveShadow = true;
-    }
-  });
 }

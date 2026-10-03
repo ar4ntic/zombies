@@ -10,12 +10,21 @@ import {
   isRoundMinutes,
   type DifficultyId,
 } from "@zombies/shared";
+import { GRAPHICS_SETTINGS, isGraphicsSetting, type GraphicsSetting } from "../engine/Renderer.ts";
 import type { SessionChoice } from "../game/Game.ts";
 import { Leaderboard } from "./Leaderboard.ts";
 
 const NAME_KEY = "zombies.nickname";
 const DIFFICULTY_KEY = "zombies.difficulty";
 const MINUTES_KEY = "zombies.minutes";
+const GRAPHICS_KEY = "zombies.graphics";
+
+const GRAPHICS_LABELS: Record<GraphicsSetting, string> = { auto: "Auto", low: "Low", medium: "Medium", high: "High", ultra: "Ultra" };
+
+export interface GraphicsTarget {
+  readonly graphics: GraphicsSetting;
+  setGraphics(setting: GraphicsSetting): void;
+}
 
 export interface GameSettings {
   difficulty: DifficultyId;
@@ -40,6 +49,26 @@ function loadSettings(): GameSettings {
 export function saveSettings(settings: GameSettings) {
   localStorage.setItem(DIFFICULTY_KEY, settings.difficulty);
   localStorage.setItem(MINUTES_KEY, String(settings.minutes));
+}
+
+export function loadGraphics(): GraphicsSetting {
+  const stored = localStorage.getItem(GRAPHICS_KEY);
+  return isGraphicsSetting(stored) ? stored : "auto";
+}
+
+/** Applies a graphics setting live and remembers it. */
+export function changeGraphics(target: GraphicsTarget, value: string) {
+  if (!isGraphicsSetting(value)) return;
+  target.setGraphics(value);
+  localStorage.setItem(GRAPHICS_KEY, value);
+}
+
+export function graphicsSelector(selected: GraphicsSetting): string {
+  return `
+    <div class="setting">
+      <span class="setting-label">Graphics</span>
+      ${segmented("graphics", GRAPHICS_SETTINGS.map((g) => [g, GRAPHICS_LABELS[g]]), selected)}
+    </div>`;
 }
 
 function segmented(name: string, options: Array<[string, string]>, selected: string): string {
@@ -69,7 +98,7 @@ export function selectSegment(group: HTMLElement, value: string) {
   for (const option of group.querySelectorAll<HTMLElement>("button")) option.setAttribute("aria-checked", String(option.dataset.value === value));
 }
 
-export function showMenu(root: HTMLElement, inviteCode: string | null, errorMessage?: string): Promise<MenuResult> {
+export function showMenu(root: HTMLElement, graphics: GraphicsTarget, inviteCode: string | null, errorMessage?: string): Promise<MenuResult> {
   const settings = loadSettings();
   const panel = document.createElement("div");
   panel.className = "menu";
@@ -81,6 +110,7 @@ export function showMenu(root: HTMLElement, inviteCode: string | null, errorMess
         <input name="nickname" maxlength="${NICKNAME_MAX_LENGTH}" autocomplete="off" placeholder="e.g. ShadowFox" />
       </label>
       ${settingsSelectors(settings)}
+      ${graphicsSelector(graphics.graphics)}
       <div class="buttons">
         <button data-action="solo" class="primary">Single player</button>
         <button data-action="create">Create team session</button>
@@ -113,6 +143,7 @@ export function showMenu(root: HTMLElement, inviteCode: string | null, errorMess
       if (button && group) {
         const value = button.dataset.value!;
         selectSegment(group, value);
+        if (group.dataset.setting === "graphics") return changeGraphics(graphics, value);
         if (group.dataset.setting === "difficulty") settings.difficulty = value as DifficultyId;
         else settings.minutes = Number(value);
         saveSettings(settings);

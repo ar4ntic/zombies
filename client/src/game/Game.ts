@@ -7,9 +7,10 @@ import {
   type PlayerState,
   type SettingsMessage,
 } from "@zombies/shared";
-import { Renderer, type Quality } from "../engine/Renderer.ts";
+import { Renderer, type GraphicsSetting } from "../engine/Renderer.ts";
 import { Network, type NetworkEvents } from "../net/Network.ts";
 import { Hud } from "../ui/Hud.ts";
+import { PerfOverlay } from "../ui/PerfOverlay.ts";
 import type { GameSettings } from "../ui/Menu.ts";
 import { Particles } from "./fx/Particles.ts";
 import { Sound } from "./fx/Sound.ts";
@@ -53,10 +54,13 @@ export class Game {
   private wasDead = false;
   private resultsTimer?: ReturnType<typeof setTimeout>;
   private wasLocked = false;
+  private readonly perf: PerfOverlay;
   private sendTimer = 0;
   private fpsFrames = 0;
   private fpsTime = 0;
   private elapsed = 0;
+  private lastFrameTime = 0;
+  private cpuMs = 0;
   fps = 0;
   solo = false;
   onLeave?: () => void;
@@ -64,17 +68,24 @@ export class Game {
   constructor(
     canvas: HTMLCanvasElement,
     private readonly ui: HTMLElement,
-    quality: Quality,
+    graphics: GraphicsSetting,
+    debug = false,
   ) {
     const scene = this.world.scene;
     scene.add(this.camera);
-    this.renderer = new Renderer(canvas, scene, this.camera, quality);
+    this.renderer = new Renderer(canvas, scene, this.camera, graphics);
+    this.perf = new PerfOverlay(ui, this.renderer, debug);
     this.input = new Input(canvas);
     this.player = new PlayerController(this.camera, this.input, this.colliders, LEVEL.halfSize);
     this.remotes = new RemotePlayers(scene);
     this.particles = new Particles(scene);
     this.tracers = new Tracers(scene);
     this.zombies = new ZombieManager(scene, this.camera, this.particles);
+    this.renderer.onWorldSettings = (settings) => {
+      this.world.applyGraphics(settings);
+      this.zombies.shadows = settings.shadows;
+    };
+    this.renderer.onWorldSettings(this.renderer.quality);
     this.viewModel = new ViewModel(this.camera);
     this.weapons = new WeaponSystem({
       camera: this.camera,
@@ -118,12 +129,20 @@ export class Game {
     return this.camera.fov;
   }
 
+  get graphics(): GraphicsSetting {
+    return this.renderer.setting;
+  }
+
+  setGraphics(setting: GraphicsSetting) {
+    this.renderer.setGraphics(setting);
+  }
+
   get playerCount(): number {
     return this.remotes.count + 1;
   }
 
   async load() {
-    const [, cast] = await Promise.all([this.world.load(this.renderer.shadowMapSize), preloadCast()]);
+    const [, cast] = await Promise.all([this.world.load(), preloadCast()]);
     await this.zombies.warmUp(this.renderer.webgl, cast);
     this.player.update(0, false);
     this.timer.connect(document);
@@ -207,6 +226,9 @@ export class Game {
   }
 
   private frame(time: number) {
+    const start = performance.now();
+    const interval = this.lastFrameTime ? time - this.lastFrameTime : 0;
+    this.lastFrameTime = time;
     this.timer.update(time);
     const dt = Math.min(this.timer.getDelta(), 0.1);
     this.elapsed += dt;
@@ -244,9 +266,11 @@ export class Game {
     this.tracers.update(dt);
     this.sendPosition(dt);
     this.hud?.update(dt);
-    this.renderer.render(dt);
+    this.renderer.render(dt, interval, this.cpuMs);
     this.input.endFrame();
     this.countFps(dt);
+    this.cpuMs = performance.now() - start;
+    this.perf.update(interval, this.cpuMs);
   }
 
   private syncWithServer(state: GameState, me: PlayerState) {

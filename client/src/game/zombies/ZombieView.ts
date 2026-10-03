@@ -62,6 +62,9 @@ export class ZombieView {
   private flash = 0;
   private readonly knock = new Vector3();
   private readonly lastPos = new Vector3();
+  /** Meshes per level of detail; 0 is the full mesh. */
+  private readonly lods: Mesh[][] = [];
+  private lod = 0;
 
   private constructor(
     private readonly scene: Scene,
@@ -76,6 +79,7 @@ export class ZombieView {
     this.root.scale.setScalar(this.scale);
 
     let sphereIndex = 0;
+    const materials = new Map<Material, Material>();
     this.root.traverse((child) => {
       const mesh = child as Mesh;
       if (!mesh.isMesh) return;
@@ -85,9 +89,17 @@ export class ZombieView {
         const sphere = template.cullSpheres[sphereIndex++];
         if (sphere) (mesh as SkinnedMesh).boundingSphere = sphere.clone();
       }
-      const material = (Array.isArray(mesh.material) ? mesh.material[0]! : mesh.material).clone();
-      if (isStandardMaterial(material)) this.uniforms.push(applyDissolve(material));
+      const source = Array.isArray(mesh.material) ? mesh.material[0]! : mesh.material;
+      let material = materials.get(source);
+      if (!material) {
+        material = source.clone();
+        if (isStandardMaterial(material)) this.uniforms.push(applyDissolve(material));
+        materials.set(source, material);
+      }
       mesh.material = material;
+      const lod = Number(mesh.name.match(/_LOD(\d)$/)?.[1] ?? 0);
+      (this.lods[lod] ??= []).push(mesh);
+      mesh.visible = lod === 0;
     });
 
     this.mixer = new AnimationMixer(this.root);
@@ -234,6 +246,22 @@ export class ZombieView {
       u.uOrigin.value.set(this.position.x, 0, this.position.z);
     }
     this.syncTransform();
+  }
+
+  get level(): number {
+    return this.lod;
+  }
+
+  get castsShadow(): boolean {
+    return this.root.userData.shadows !== false && this.dissolve === 0;
+  }
+
+  setLevel(level: number) {
+    level = Math.min(level, this.lods.length - 1);
+    if (level === this.lod) return;
+    for (const mesh of this.lods[this.lod]!) mesh.visible = false;
+    for (const mesh of this.lods[level]!) mesh.visible = true;
+    this.lod = level;
   }
 
   setShadows(enabled: boolean) {

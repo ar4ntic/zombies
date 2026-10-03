@@ -1,7 +1,7 @@
 import "./styles.css";
-import type { Quality } from "./engine/Renderer.ts";
+import { isGraphicsSetting } from "./engine/Renderer.ts";
 import { Game } from "./game/Game.ts";
-import { showMenu, showMessage } from "./ui/Menu.ts";
+import { loadGraphics, showMenu, showMessage } from "./ui/Menu.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game")!;
 const ui = document.querySelector<HTMLElement>("#ui")!;
@@ -12,11 +12,10 @@ const params = new URLSearchParams(location.search);
 const debug = import.meta.env.DEV || params.has("debug");
 const testDuration = debug ? Number(params.get("duration")) || undefined : undefined;
 
-const QUALITIES: Quality[] = ["low", "medium", "high", "ultra"];
-const requestedQuality = params.get("quality") as Quality | null;
-const quality = requestedQuality && QUALITIES.includes(requestedQuality) ? requestedQuality : "medium";
+const requestedQuality = params.get("quality");
+const graphics = isGraphicsSetting(requestedQuality) ? requestedQuality : loadGraphics();
 
-const game = new Game(canvas, ui, quality);
+const game = new Game(canvas, ui, graphics, params.has("debug"));
 if (debug) Object.assign(window, { game });
 const loading = showMessage(ui, "Loading...");
 const loaded = game.load().finally(() => loading.remove());
@@ -27,7 +26,7 @@ game.onLeave = () => {
 };
 
 async function play(invite: string | null, error?: string) {
-  const { name, choice, settings } = await showMenu(ui, invite, error);
+  const { name, choice, settings } = await showMenu(ui, game, invite, error);
   game.sound.unlock();
   await loaded;
   try {

@@ -156,13 +156,15 @@ body {
   background: #4cc93e;
 }
 
-.menu .setting {
+.menu .setting,
+.pause .setting {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.menu .setting-label {
+.menu .setting-label,
+.pause .setting-label {
   font-size: 0.9rem;
   opacity: 0.9;
 }
@@ -176,7 +178,8 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
-.menu .segmented button {
+.menu .segmented button,
+.hud .pause .segmented button {
   flex: 1;
   padding: 8px 4px;
   border: 1px solid transparent;
@@ -187,12 +190,14 @@ body {
   opacity: 0.75;
 }
 
-.menu .segmented button:hover {
+.menu .segmented button:hover,
+.hud .pause .segmented button:hover {
   background: rgba(255, 255, 255, 0.08);
   opacity: 1;
 }
 
-.menu .segmented button[aria-checked="true"] {
+.menu .segmented button[aria-checked="true"],
+.hud .pause .segmented button[aria-checked="true"] {
   background: var(--accent-dark);
   border-color: var(--accent);
   opacity: 1;
@@ -1370,4 +1375,30 @@ kbd {
     border-left: 0;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
   }
+}
+
+.hud .pause .pause-graphics {
+  width: min(420px, 100%);
+  margin-bottom: 6px;
+  text-align: left;
+}
+
+.hud .pause .segmented button {
+  min-width: 0;
+  font-weight: 600;
+}
+
+.perf-overlay {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 20;
+  margin: 0;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #b9ffb0;
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre;
+  pointer-events: none;
 }
