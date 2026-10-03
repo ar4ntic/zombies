@@ -1,0 +1,21 @@
+{
+  "clips": {
+    "walk": "Monster_Walk",
+    "walk2": "Stumble_Walk",
+    "run": "RunFast",
+    "attack": "Punch_Forward_with_Both_Fists",
+    "hit": "Hit_Reaction",
+    "hitHead": "Face_Punch_Reaction",
+    "death": "Knock_Down",
+    "death2": "Shot_and_Fall_Backward",
+    "scream": "Zombie_Scream",
+    "dance": "ymca_dance"
+  },
+  "characters": {
+    "walker": ["zombie_mailman", "zombie_grandma", "zombie_chef", "zombie_builder", "zombie_gym", "zombie_teen", "zombie_mascot"],
+    "runner": ["zombie_jogger", "zombie_teen"],
+    "brute": ["zombie_wrestler"]
+  },
+  "height": 1.8,
+  "facing": "+Z"
+}
