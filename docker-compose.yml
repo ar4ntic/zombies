@@ -6,6 +6,9 @@ services:
     restart: unless-stopped
     ports:
       - "${PORT:-8080}:8080"
+    environment:
+      RESULTS_URL: ${RESULTS_URL:-}
+      RESULTS_SECRET: ${RESULTS_SECRET:-}
     volumes:
       - zombies-data:/data
     healthcheck:
@@ -13,6 +16,19 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+  # Publishes the game server through a Cloudflare Tunnel. Enable with COMPOSE_PROFILES=tunnel
+  # and CLOUDFLARE_TUNNEL_TOKEN in .env; point the tunnel's public hostname at http://zombies:8080.
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: zombies-tunnel
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - zombies
 
 volumes:
   zombies-data:
