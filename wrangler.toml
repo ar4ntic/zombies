@@ -29,4 +29,4 @@ migrations_dir = "migrations"
 # MAIL_FROM is an address on a domain verified at Resend, e.g. "Zombie Breakout <noreply@example.com>".
 # The API key is a secret: npx wrangler secret put RESEND_API_KEY
 [vars]
-MAIL_FROM = ""
+MAIL_FROM = "Zombie Breakout <zombies@srantic.com>"
