@@ -6,6 +6,7 @@ import {
   TICK_MS,
   WAVE_COUNTDOWN_SECONDS,
   buildColliders,
+  skinDef,
   type EnergyMode,
   type GameState,
   type PlayerState,
@@ -215,8 +216,9 @@ export class Game {
     this.renderer.webgl.setAnimationLoop((time) => this.frame(time));
   }
 
-  async connect(name: string, choice: SessionChoice, settings: GameSettings, testDuration?: number) {
+  async connect(name: string, skin: string, choice: SessionChoice, settings: GameSettings, testDuration?: number) {
     this.solo = choice.mode === "solo";
+    this.viewModel.setArms(skinDef(skin));
     const events: NetworkEvents = {
       playerAdded: (id, state) => {
         if (id !== this.network.sessionId) this.remotes.add(id, state);
@@ -231,6 +233,7 @@ export class Game {
         const from = new Vector3(...e.origin);
         const bolt = BOLTS[e.weapon];
         this.bolts.spawn(from, new Vector3(...e.end), bolt.color, bolt.width * 1.5, bolt.length);
+        this.remotes.shot(e.by);
         const distance = from.distanceTo(this.camera.position);
         this.sound.shot(e.weapon, Math.max(0.08, 1 - distance / 50) * 0.6);
       },
@@ -262,9 +265,9 @@ export class Game {
     };
     this.pickups.clear();
     if (choice.mode === "join") {
-      await this.network.joinSession(choice.code, { name }, events);
+      await this.network.joinSession(choice.code, { name, skin }, events);
     } else {
-      await this.network.createSession({ name, solo: this.solo, ...settings, duration: testDuration }, events);
+      await this.network.createSession({ name, skin, solo: this.solo, ...settings, duration: testDuration }, events);
     }
     this.hud = new Hud(this.ui, this);
   }
@@ -280,6 +283,11 @@ export class Game {
 
   changeSettings(settings: SettingsMessage) {
     this.network.sendSettings(settings);
+  }
+
+  changeSkin(skin: string) {
+    this.network.sendSkin(skin);
+    this.viewModel.setArms(skinDef(skin));
   }
 
   leave() {
@@ -369,6 +377,7 @@ export class Game {
     if (!this.wasDead && me.dead) this.sound.knockedOut();
     this.wasDead = me.dead;
     this.player.dead = me.dead;
+    this.remotes.cheering = state.phase === "ended";
 
     const countdown = this.waveCountdown?.seconds ?? 0;
     if (countdown !== this.lastCountdown) {

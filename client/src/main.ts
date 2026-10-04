@@ -1,7 +1,8 @@
 import "./styles.css";
 import { isGraphicsSetting } from "./engine/Renderer.ts";
 import { Game } from "./game/Game.ts";
-import { showMenu, showMessage } from "./ui/Menu.ts";
+import { accountApi } from "./net/account.ts";
+import { showMenu, showMessage, type MenuStart } from "./ui/Menu.ts";
 import { loadGraphics, loadSensitivity } from "./ui/Settings.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game")!;
@@ -27,12 +28,23 @@ game.onLeave = () => {
   void play(null);
 };
 
-async function play(invite: string | null, error?: string) {
-  const { name, choice, settings } = await showMenu(ui, game, invite, error);
+/** Links from account mails carry their token after the #, where it stays out of server logs. */
+async function mailLink(): Promise<MenuStart> {
+  const token = location.hash.slice(1);
+  const page = location.pathname;
+  if (!token || (page !== "/verify" && page !== "/reset")) return {};
+  history.replaceState(null, "", "/");
+  if (page === "/reset") return { resetToken: token };
+  const { error } = await accountApi.verify(token);
+  return { notice: error ?? "Your email address is confirmed. Your nickname is protected from now on." };
+}
+
+async function play(invite: string | null, error?: string, start: MenuStart = {}) {
+  const { name, choice, settings, skin } = await showMenu(ui, game, invite, error, start);
   game.sound.unlock();
   await loaded;
   try {
-    await game.connect(name, choice, settings, testDuration);
+    await game.connect(name, skin, choice, settings, testDuration);
     if (choice.mode !== "solo") history.replaceState(null, "", `/join/${game.network.sessionCode}${location.search}`);
     if (!game.inLobby) game.input.lock();
   } catch (err) {
@@ -44,4 +56,4 @@ async function play(invite: string | null, error?: string) {
   }
 }
 
-void play(inviteCode);
+void mailLink().then((start) => play(inviteCode, undefined, start));

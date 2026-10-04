@@ -12,54 +12,54 @@ import {
   SpriteMaterial,
   type Scene,
 } from "three";
-import type { PlayerState } from "@zombies/shared";
-import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { skinDef, type PlayerState, type WeaponId } from "@zombies/shared";
+import { PlayerView } from "./players/PlayerView.ts";
+import { loadSkin } from "./players/skins.ts";
 
 const SMOOTHING = 14;
-const COLORS = ["#3d8bff", "#ff8a3d", "#c35bff", "#ffd23d"];
 
 interface Remote {
   state: PlayerState;
   root: Group;
   body: Group;
+  /** Stand-in shown until the skin has loaded, or instead of it when it cannot be loaded. */
+  placeholder: Group;
+  placeholderSuit: MeshStandardMaterial;
+  view?: PlayerView;
+  skin: string;
+  label: Sprite;
   shield: Mesh;
-  suit: MeshStandardMaterial;
   deadT: number;
   wasDead: boolean;
+  speed: number;
 }
 
 const bodyGeometry = new CapsuleGeometry(0.3, 0.75, 6, 16);
 const headGeometry = new SphereGeometry(0.2, 24, 16);
-const visorGeometry = new RoundedBoxGeometry(0.3, 0.09, 0.12, 2, 0.03);
-const gunGeometry = new RoundedBoxGeometry(0.08, 0.1, 0.5, 2, 0.02);
 const shieldGeometry = new SphereGeometry(1, 32, 16);
-const skin = new MeshStandardMaterial({ color: "#e8b996", roughness: 0.6 });
-const visor = new MeshStandardMaterial({ color: "#101418", roughness: 0.15, metalness: 0.6, emissive: "#2fd8ff", emissiveIntensity: 0.6 });
-const gunMaterial = new MeshStandardMaterial({ color: "#2a2d33", metalness: 0.8, roughness: 0.35 });
+const skinTone = new MeshStandardMaterial({ color: "#e8b996", roughness: 0.6 });
 
 export class RemotePlayers {
   private readonly players = new Map<string, Remote>();
-  private colorIndex = 0;
+  /** Set once the round is over, when everybody celebrates. */
+  cheering = false;
 
   constructor(private readonly scene: Scene) {}
 
   add(id: string, state: PlayerState) {
-    const color = COLORS[this.colorIndex++ % COLORS.length]!;
     const root = new Group();
     const body = new Group();
-    const suit = new MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.05, emissive: "#6ee7ff", emissiveIntensity: 0 });
-    const torso = new Mesh(bodyGeometry, suit);
+    const placeholder = new Group();
+    const placeholderSuit = new MeshStandardMaterial({ color: skinDef(state.skin).sleeve, roughness: 0.55, metalness: 0.05 });
+    const torso = new Mesh(bodyGeometry, placeholderSuit);
     torso.position.y = 0.68;
-    const head = new Mesh(headGeometry, skin);
+    const head = new Mesh(headGeometry, skinTone);
     head.position.y = 1.5;
-    const eyes = new Mesh(visorGeometry, visor);
-    eyes.position.set(0, 1.53, -0.15);
-    const gun = new Mesh(gunGeometry, gunMaterial);
-    gun.position.set(0.22, 1.15, -0.35);
-    body.add(torso, head, eyes, gun);
-    body.traverse((c) => (c.castShadow = true));
+    placeholder.add(torso, head);
+    placeholder.traverse((c) => (c.castShadow = true));
+    body.add(placeholder);
 
-    const label = nameSprite(state.name, color);
+    const label = nameSprite(state.name, skinDef(state.skin).sleeve);
     label.position.y = 2.1;
 
     const shield = new Mesh(
@@ -73,20 +73,56 @@ export class RemotePlayers {
     root.add(body, label, shield);
     root.position.set(state.x, state.y, state.z);
     this.scene.add(root);
-    this.players.set(id, { state, root, body, shield, suit, deadT: 0, wasDead: state.dead });
+    const remote: Remote = { state, root, body, placeholder, placeholderSuit, skin: "", label, shield, deadT: 0, wasDead: state.dead, speed: 0 };
+    this.players.set(id, remote);
+    this.applySkin(id, remote);
+  }
+
+  /** Swaps in the player's skin once it has loaded; the stand-in stays if it cannot be loaded. */
+  private applySkin(id: string, remote: Remote) {
+    const skin = remote.state.skin;
+    remote.skin = skin;
+    remote.placeholderSuit.color.set(skinDef(skin).sleeve);
+    loadSkin(skin).then(
+      (template) => {
+        if (this.players.get(id) !== remote || remote.skin !== skin) return;
+        this.dropView(remote);
+        remote.view = new PlayerView(template);
+        remote.body.add(remote.view.root);
+        remote.placeholder.visible = false;
+      },
+      (err) => console.warn(`Player skin ${skin} unavailable`, err),
+    );
+  }
+
+  private dropView(remote: Remote) {
+    if (!remote.view) return;
+    remote.body.remove(remote.view.root);
+    remote.view.dispose();
+    remote.view = undefined;
+    remote.placeholder.visible = true;
+  }
+
+  /** A remote player fired; their skin raises the weapon. */
+  shot(id: string) {
+    this.players.get(id)?.view?.shot();
   }
 
   remove(id: string) {
     const entry = this.players.get(id);
     if (!entry) return;
+    this.dropView(entry);
     this.scene.remove(entry.root);
-    entry.suit.dispose();
+    entry.placeholderSuit.dispose();
     (entry.shield.material as MeshBasicMaterial).dispose();
+    entry.label.material.map?.dispose();
+    entry.label.material.dispose();
     this.players.delete(id);
   }
 
   clear() {
     for (const id of [...this.players.keys()]) this.remove(id);
+    this.cheering = false;
   }
 
   get count(): number {
@@ -94,28 +130,36 @@ export class RemotePlayers {
   }
 
   update(dt: number, time: number) {
-    for (const p of this.players.values()) {
-      const { state, root, body, shield, suit } = p;
+    for (const [id, p] of this.players) {
+      const { state, root, body, shield } = p;
+      if (state.skin !== p.skin) this.applySkin(id, p);
       if (p.wasDead && !state.dead) {
         root.position.set(state.x, state.y, state.z);
         p.deadT = 0;
       }
       p.wasDead = state.dead;
+      const fromX = root.position.x;
+      const fromZ = root.position.z;
       root.position.x = MathUtils.damp(root.position.x, state.x, SMOOTHING, dt);
       root.position.y = MathUtils.damp(root.position.y, state.y, SMOOTHING, dt);
       root.position.z = MathUtils.damp(root.position.z, state.z, SMOOTHING, dt);
+      if (dt > 0) p.speed = MathUtils.damp(p.speed, Math.hypot(root.position.x - fromX, root.position.z - fromZ) / dt, 10, dt);
       let delta = state.yaw - body.rotation.y;
       delta = Math.atan2(Math.sin(delta), Math.cos(delta));
       body.rotation.y += delta * Math.min(1, SMOOTHING * dt);
 
       p.deadT = MathUtils.damp(p.deadT, state.dead ? 1 : 0, 6, dt);
-      body.rotation.x = -p.deadT * 1.45;
-      body.position.y = p.deadT * 0.3;
+      if (p.view) {
+        p.view.update(dt, { speed: p.speed, pitch: state.pitch, dead: state.dead, weapon: state.weapon as WeaponId, cheering: this.cheering });
+      } else {
+        p.placeholder.rotation.x = -p.deadT * 1.45;
+        p.placeholder.position.y = p.deadT * 0.3;
+      }
+      p.label.position.y = MathUtils.lerp(2.1, 0.9, p.deadT);
 
       const shimmer = state.protection > 0 ? 0.5 + 0.5 * Math.sin(time * 14) : 0;
       shield.visible = shimmer > 0;
       (shield.material as MeshBasicMaterial).opacity = 0.12 + shimmer * 0.18;
-      suit.emissiveIntensity = shimmer * 0.8;
     }
   }
 }

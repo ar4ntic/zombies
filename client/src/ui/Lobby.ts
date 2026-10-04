@@ -1,5 +1,6 @@
 import { MAX_PLAYERS, settingsLabel, type DifficultyId, type EnergyMode, type GameState } from "@zombies/shared";
 import type { Game } from "../game/Game.ts";
+import { characterPicker, loadSkinChoice, saveSkinChoice, skinAvatar } from "./CharacterPicker.ts";
 import { copyText } from "./clipboard.ts";
 import { saveSettings, settingChange, settingValue, settingsSelectors, type GameSettings } from "./Menu.ts";
 import { selectSegment } from "./segmented.ts";
@@ -41,9 +42,11 @@ export class Lobby {
         <button type="button" data-action="share" ${"share" in navigator ? "" : "hidden"}>Share invite</button>
         <div data-ref="hostSettings">${settingsSelectors(roundSettings(state))}</div>
         <p class="settings-tag" data-ref="settings"></p>
+        <div data-ref="picker" hidden></div>
         <p class="hint" data-ref="hint"></p>
         <div class="buttons">
           <button type="button" class="primary" data-ref="start" data-action="start">Start game</button>
+          <button type="button" data-ref="character" data-action="character">Change character</button>
           <button type="button" data-action="leave">Leave</button>
         </div>
       </div>
@@ -53,6 +56,12 @@ export class Lobby {
       </aside>
     `;
     for (const node of this.el.querySelectorAll<HTMLElement>("[data-ref]")) this.$[node.dataset.ref!] = node;
+    this.$.picker!.append(
+      characterPicker(loadSkinChoice(), (skin) => {
+        saveSkinChoice(skin);
+        game.changeSkin(skin);
+      }),
+    );
     this.el.addEventListener("click", (event) => this.click(event, code, link));
   }
 
@@ -72,6 +81,12 @@ export class Lobby {
         return void copyText(button, code);
       case "share":
         return void navigator.share({ title: "Zombie Breakout", text: `Join my Zombie Breakout team! Code ${code}`, url: link }).catch(() => {});
+      case "character": {
+        const picker = this.$.picker!;
+        picker.hidden = !picker.hidden;
+        button.textContent = picker.hidden ? "Change character" : "Done";
+        return;
+      }
       case "start":
         return this.game.startRound();
       case "leave":
@@ -104,7 +119,7 @@ export class Lobby {
       [...state.players.entries()]
         .map(
           ([id, p]) =>
-            `<li class="${id === me ? "me" : ""}"><span class="name">${escapeHtml(p.name)}</span>` +
+            `<li class="${id === me ? "me" : ""}">${skinAvatar(p.skin)}<span class="name">${escapeHtml(p.name)}</span>` +
             `${id === state.hostId ? `<span class="tag host">Host</span>` : ""}${id === me ? `<span class="tag">you</span>` : ""}</li>`,
         )
         .join(""),

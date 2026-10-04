@@ -2,6 +2,7 @@ export * from "./constants.ts";
 export * from "./difficulty.ts";
 export * from "./energy.ts";
 export * from "./messages.ts";
+export * from "./nickname.ts";
 export * from "./schema.ts";
 export * from "./skins.ts";
 export * from "./weapons.ts";

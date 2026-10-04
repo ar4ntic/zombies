@@ -24,6 +24,8 @@ const gltfTransform = join(root, "node_modules/.bin/gltf-transform");
 const API = "https://api.meshy.ai/openapi";
 const STEPS = ["preview", "refine", "rig", "animate", "export"];
 const THUMBNAIL_SIZE = 256;
+/** Square around the head in Meshy's full-body render, as fractions of its size. */
+const PORTRAIT = { left: 0.31, top: 0.04, size: 0.38 };
 
 // Player skins are seen from further away than the zombies in the player's face, and ten of them have to load.
 const GROUPS = {
@@ -223,7 +225,15 @@ for (const char of targets) {
   if (char.thumbnail) {
     const thumb = join(outDir, "thumbs", `${char.id}.webp`);
     mkdirSync(dirname(thumb), { recursive: true });
-    await sharp(join(dir, "refine.png")).resize(THUMBNAIL_SIZE, THUMBNAIL_SIZE, { fit: "cover" }).webp({ quality: 86 }).toFile(thumb);
+    const render = sharp(join(dir, "refine.png"));
+    const { width, height } = await render.metadata();
+    const size = Math.round(Math.min(width, height) * PORTRAIT.size);
+    await render
+      .extract({ left: Math.round(width * PORTRAIT.left), top: Math.round(height * PORTRAIT.top), width: size, height: size })
+      .flatten({ background: "#e9edf0" })
+      .resize(THUMBNAIL_SIZE, THUMBNAIL_SIZE)
+      .webp({ quality: 86 })
+      .toFile(thumb);
     console.log(`  thumbnail ${thumb.replace(root + "/", "")}`);
   }
 }

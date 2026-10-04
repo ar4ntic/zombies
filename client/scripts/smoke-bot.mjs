@@ -1,11 +1,14 @@
-// Checks session options, a two-client team session and the team lobby (including a 1-minute team round),
+// Checks session options, accounts, a two-client team session and the team lobby (including a 1-minute team round),
 // then plays a solo round over the network with perfect aim.
 // Usage: pnpm smoke [url] [roundSeconds | --minutes=N] [--difficulty=normal] [--die] [--human | --still]
 // --minutes plays a standard-length round, which also shows up on the leaderboard (checked at the end).
 // --energy=infinite|limited picks the energy mode of the solo round (default limited, which also checks capsule pickups).
+// --mail-log=FILE reads the confirmation link from the output of a local `wrangler dev` (which logs account mails
+//   instead of sending them), to also check that a confirmed account's nickname is refused to everybody else.
 // --die holds fire until the bot is knocked out once, to exercise death, penalty and respawn.
 // --human aims like a decent player (slower, misses, fewer headshots, shorter range) and backs away from zombies.
 // --still aims like --human but stands still.
+import { readFileSync } from "node:fs";
 import { Callbacks, Decoder } from "@colyseus/schema";
 import { GameState, StateFrame } from "../../shared/src/index.ts";
 
@@ -16,6 +19,7 @@ const minutes = option("minutes") ? Number(option("minutes")) : undefined;
 const duration = minutes ? minutes * 60 : Number(args[1] ?? 60);
 const difficulty = option("difficulty") ?? "normal";
 const energy = option("energy") ?? "limited";
+const mailLog = option("mail-log");
 const testDeath = process.argv.includes("--die");
 const still = process.argv.includes("--still");
 const human = still || process.argv.includes("--human");
@@ -47,9 +51,10 @@ class Session {
     return Session.join(body.code, options.name, options.playerId, options.skin);
   }
 
-  static async join(code, name, playerId = crypto.randomUUID(), skin) {
+  /** `cookie` joins as the account that session cookie belongs to. */
+  static async join(code, name, playerId = crypto.randomUUID(), skin, cookie) {
     const session = new Session(code);
-    await session.connect(new URLSearchParams({ name, playerId, ...(skin ? { skin } : {}) }));
+    await session.connect(new URLSearchParams({ name, playerId, ...(skin ? { skin } : {}) }), cookie);
     return session;
   }
 
@@ -66,9 +71,9 @@ class Session {
     return this.decoder.state;
   }
 
-  connect(params) {
+  connect(params, cookie) {
     return new Promise((resolve, reject) => {
-      const socket = new WebSocket(`${url.replace(/^http/, "ws")}/ws/${this.code}?${params}`);
+      const socket = new WebSocket(`${url.replace(/^http/, "ws")}/ws/${this.code}?${params}`, cookie ? { headers: { cookie } } : undefined);
       socket.binaryType = "arraybuffer";
       this.socket = socket;
       let synced = false;
@@ -146,6 +151,72 @@ async function checkSessions() {
   if (state.difficulty !== "nightmare" || state.duration !== 600 || state.energy !== "infinite") failures.push("custom settings not applied");
   console.log(`sessions: clamped=normal/300s, nightmare/10min star=${state.scoreStar}, host transfer ok=${!failures.length}`);
   custom.leave();
+}
+
+/** Account endpoints with a cookie jar of one. */
+function accountClient() {
+  let cookie = "";
+  const call = async (method, path, body) => {
+    const res = await fetch(`${url}/api/auth/${path}`, {
+      method,
+      headers: { "content-type": "application/json", origin: url, ...(cookie ? { cookie } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const set = res.headers.get("set-cookie");
+    if (set) cookie = set.split(";")[0];
+    return { status: res.status, body: await res.json().catch(() => null) };
+  };
+  return { call, cookie: () => cookie };
+}
+
+async function checkAccounts() {
+  const before = failures.length;
+  const stamp = Date.now().toString(36);
+  const email = `smoke-${stamp}@example.test`;
+  const password = `smoke-${stamp}-pass`;
+  const nickname = `Smoke${stamp.slice(-6)}`;
+  const account = accountClient();
+  const expect = (what, ok) => ok || failures.push(`accounts: ${what}`);
+
+  expect("short password accepted", (await account.call("POST", "register", { email, password: "short" })).status === 400);
+  const registered = await account.call("POST", "register", { email, password });
+  expect("register failed", registered.status === 201 && registered.body?.account?.email === email && !registered.body.account.verified);
+  expect("duplicate email accepted", (await account.call("POST", "register", { email, password })).status === 409);
+  expect("cross-site request accepted", (await fetch(`${url}/api/auth/logout`, { method: "POST", headers: { origin: "https://elsewhere.example" } })).status === 403);
+  expect("invalid nickname accepted", (await account.call("PUT", "nickname", { nickname: "x" })).status === 400);
+  const named = await account.call("PUT", "nickname", { nickname });
+  expect("nickname not set", named.status === 200 && named.body?.account?.nickname === nickname);
+
+  const host = await Session.create({ name: "AccountHost" });
+  const check = async (cookie) => (await (await fetch(`${url}/api/nicknames/check?name=${nickname.toUpperCase()}`, { headers: cookie ? { cookie } : {} })).json());
+  const open = await Session.join(host.code, nickname).then((s) => s.leave() ?? "joined", () => "refused");
+  expect(`unconfirmed nickname already protected (${open})`, open === "joined" && !(await check()).protected);
+
+  let verified = false;
+  if (mailLog) {
+    const token = [...readFileSync(mailLog, "utf8").matchAll(/\/verify#([\w-]+)/g)].at(-1)?.[1];
+    const confirmed = await account.call("POST", "verify", { token });
+    verified = confirmed.status === 200 && confirmed.body?.account?.verified === true;
+    expect("email confirmation failed", verified);
+    expect("confirmation link worked twice", (await account.call("POST", "verify", { token })).status === 400);
+    const stranger = await Session.join(host.code, nickname.toUpperCase()).then((s) => s.leave() ?? "joined", () => "refused");
+    expect(`protected nickname given to a stranger (${stranger})`, stranger === "refused");
+    const state = await check();
+    const mine = await check(account.cookie());
+    expect("nickname check wrong", state.protected && !state.mine && mine.protected && mine.mine);
+  }
+  const owner = await Session.join(host.code, "SomethingElse", undefined, undefined, account.cookie());
+  await sleep(300);
+  expect("account player not named after the account", host.state.players.get(owner.sessionId)?.name === nickname);
+  owner.leave();
+  host.leave();
+
+  expect("logout failed", (await account.call("POST", "logout")).status === 200 && (await account.call("GET", "me")).body?.account === null);
+  expect("wrong password accepted", (await account.call("POST", "login", { email, password: `${password}!` })).status === 401);
+  expect("login failed", (await account.call("POST", "login", { email, password })).body?.account?.nickname === nickname);
+  expect("account deleted without the password", (await account.call("DELETE", "me", { password: "wrong-password" })).status === 401);
+  expect("account not deleted", (await account.call("DELETE", "me", { password })).status === 200 && !(await check()).protected);
+  console.log(`accounts: register, nickname, ${verified ? "confirmed + protected" : "confirmation skipped (no --mail-log)"}, login, delete, ok=${failures.length === before}`);
 }
 
 async function checkTeam() {
@@ -283,6 +354,7 @@ async function checkLobby() {
 }
 
 await checkSessions();
+await checkAccounts();
 await checkTeam();
 await checkLobby();
 
@@ -315,6 +387,8 @@ let earlyWave = false;
 let sawCapsule = false;
 let collected = 0;
 let healed = 0;
+let healAttempts = 0;
+let home;
 const types = new Set();
 
 room.onMessage("zombieHit", () => hits++);
@@ -386,6 +460,17 @@ await new Promise((resolve) => {
       room.send("move", { x, y: 0, z, yaw: 0, pitch: 0 });
       room.send("collect", { id: capsule[0] });
     }
+    // While waiting to be knocked out, a hurt bot steps onto a health pack once and returns to the zombies.
+    const pack = [...s.pickups].find(([, p]) => p.kind === "health");
+    if (deathPhase && pack && !me.dead && me.hp < 100 && healed === 0) {
+      healAttempts++;
+      home ??= { x, z };
+      x = pack[1].x;
+      z = pack[1].z;
+    } else if (home) {
+      ({ x, z } = home);
+      home = undefined;
+    }
     if (human && !still && !me.dead) {
       let fx = -x / ARENA_LIMIT;
       let fz = -z / ARENA_LIMIT;
@@ -437,6 +522,7 @@ await new Promise((resolve) => {
       if (s.teamScore !== me.score) failures.push("team score != player score");
       if (pauseCheck !== "ok") failures.push(`solo pause did not freeze the timer (${pauseCheck})`);
       if (me.hits !== hits || me.shots < me.hits) failures.push(`accuracy counters wrong: ${me.hits}/${me.shots} for ${hits} hit events`);
+      if (healAttempts > 3 && healed === 0) failures.push("health pack not applied to a hurt player standing on it");
       if (earlyWave) failures.push("a wave was announced while zombies were still standing");
       if (s.wave > 1 && waveCountdowns < s.wave - 1) failures.push(`${s.wave} waves but only ${waveCountdowns} countdowns`);
       if (s.waveIn !== 0 || s.pickups.size !== 0) failures.push("wave countdown or pickups left after the round");

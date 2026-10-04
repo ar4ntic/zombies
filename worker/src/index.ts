@@ -1,4 +1,6 @@
-import type { CreateSessionResponse } from "@zombies/shared";
+import { cleanNickname, type CreateSessionResponse } from "@zombies/shared";
+import { checkNickname, handleAuth, nicknameOwner } from "./accounts.ts";
+import { sessionAccount } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { json, leaderboard, parseCategory, parseLimit } from "./scores.ts";
 import { generateSessionCode, isSessionCode } from "./sessionCode.ts";
@@ -18,7 +20,15 @@ export default {
     if (session && method === "GET") return sessionInfo(env, session[1]!.toUpperCase());
     const socket = pathname.match(/^\/ws\/([^/]+)$/);
     if (socket && method === "GET") return connect(request, env, socket[1]!.toUpperCase());
-    if (pathname === "/api/leaderboard" && method === "GET") return getLeaderboard(env, url.searchParams);
+    if (pathname === "/api/leaderboard" && method === "GET") return getLeaderboard(request, env, url.searchParams);
+    if (pathname.startsWith("/api/auth/")) {
+      const response = await handleAuth(request, env, pathname.slice("/api/auth/".length)).catch((err) => {
+        console.error("Account request failed", err);
+        return json({ account: null, error: "Accounts are unavailable right now." }, 503);
+      });
+      if (response) return response;
+    }
+    if (pathname === "/api/nicknames/check" && method === "GET") return checkNickname(request, env, url.searchParams.get("name") ?? "");
     if (pathname === "/api/health") return json({ ok: true });
     if (pathname.startsWith("/api/") || pathname.startsWith("/ws/")) return json({ error: "Not found" }, 404);
     return env.ASSETS.fetch(request);
@@ -51,15 +61,29 @@ async function connect(request: Request, env: Env, code: string): Promise<Respon
     return new Response("Expected a WebSocket upgrade", { status: 426 });
   }
   if (!isSessionCode(code)) return new Response("Session not found", { status: 404 });
-  return stub(env, code).fetch(request);
+  const url = new URL(request.url);
+  // Only this Worker may say which account a player belongs to.
+  url.searchParams.delete("account");
+  if (!url.searchParams.has("token")) {
+    const account = await sessionAccount(request, env.DB).catch(() => null);
+    if (account?.nickname) {
+      // Logged in players always play under their account's nickname.
+      url.searchParams.set("name", account.nickname);
+      url.searchParams.set("account", account.id);
+    } else {
+      const owner = await nicknameOwner(env.DB, cleanNickname(url.searchParams.get("name") ?? "")).catch(() => null);
+      if (owner) return new Response("This nickname is protected", { status: 403 });
+    }
+  }
+  return stub(env, code).fetch(new Request(url, request));
 }
 
-async function getLeaderboard(env: Env, params: URLSearchParams): Promise<Response> {
+async function getLeaderboard(request: Request, env: Env, params: URLSearchParams): Promise<Response> {
   const category = parseCategory(params);
   if (!category) return json({ error: "difficulty, a standard round length (minutes) and a known energy mode are required" }, 400);
   try {
-    const playerId = params.get("player");
-    const me = playerId ? { playerId, nickname: params.get("name")?.trim() || undefined } : undefined;
+    const account = await sessionAccount(request, env.DB).catch(() => null);
+    const me = { playerId: params.get("player") ?? undefined, nickname: params.get("name")?.trim() || undefined, accountId: account?.id };
     const entries = await leaderboard(env.DB, category, parseLimit(params), me);
     return json({ ...category, entries });
   } catch (err) {

@@ -7,12 +7,12 @@ import {
   DIFFICULTIES,
   GameState,
   MAX_PLAYERS,
-  NICKNAME_MAX_LENGTH,
   PARKING_LOT,
   PlayerState,
   RECONNECT_GRACE_SECONDS,
   StateFrame,
   TICK_MS,
+  cleanNickname,
   isDifficulty,
   isEnergyMode,
   isRoundMinutes,
@@ -63,6 +63,8 @@ interface RoomClient {
   id: string;
   token: string;
   playerId: string;
+  /** Set for players logged in to the account that owns their nickname. */
+  accountId: string | null;
   socket?: WebSocket;
   /** Has received the full state and gets patches from now on. */
   synced: boolean;
@@ -122,14 +124,14 @@ export class GameRoom {
     };
   }
 
-  join(socket: WebSocket, rawName: string | null, rawPlayerId: string | null, rawSkin: string | null) {
+  join(socket: WebSocket, rawName: string | null, rawPlayerId: string | null, rawSkin: string | null, accountId: string | null) {
     const id = this.uniqueId();
     const taken = [...this.clients.values()].some((c) => c.playerId === rawPlayerId);
     const playerId = isPlayerId(rawPlayerId) && !taken ? rawPlayerId : crypto.randomUUID();
-    const client: RoomClient = { id, token: crypto.randomUUID(), playerId, synced: false, graceTimer: null };
+    const client: RoomClient = { id, token: crypto.randomUUID(), playerId, accountId, synced: false, graceTimer: null };
     this.clients.set(id, client);
 
-    const name = String(rawName ?? "").trim().slice(0, NICKNAME_MAX_LENGTH) || "Survivor";
+    const name = cleanNickname(rawName ?? "") || "Survivor";
     const player = new PlayerState({ name, skin: isSkin(rawSkin) ? rawSkin : DEFAULT_SKIN });
     this.state.players.set(id, player);
     this.sim.addPlayer(id, player);
@@ -334,6 +336,7 @@ export class GameRoom {
         stars: this.state.stars,
         players: entries.map(({ client, player }) => ({
           playerId: client.playerId,
+          accountId: client.accountId,
           nickname: player.name,
           score: player.score,
           kills: player.kills,

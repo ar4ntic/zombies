@@ -52,6 +52,7 @@ const MODELS = [
 ];
 
 const credits = [];
+const MESHY_CREDIT = "Zombie characters and player skins generated with Meshy (https://www.meshy.ai)";
 
 async function download(url, dest) {
   if (existsSync(dest) && !force) return;
@@ -131,5 +132,7 @@ console.log("Textures");
 for (const t of TEXTURES) await fetchTexture(t);
 console.log("Models");
 for (const m of MODELS) await fetchModel(m);
+// The characters come from scripts/meshy, not from this download, but share the credits file.
+credits.push(MESHY_CREDIT);
 writeFileSync(join(out, "CREDITS.txt"), credits.join("\n") + "\n");
 console.log(`Done. ${credits.length} credited assets.`);

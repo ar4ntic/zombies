@@ -6,6 +6,7 @@ import {
   Mesh,
   MeshPhysicalMaterial,
   MeshStandardMaterial,
+  Quaternion,
   SphereGeometry,
   Vector3,
   type BufferGeometry,
@@ -13,6 +14,19 @@ import {
 } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import type { WeaponId } from "@zombies/shared";
+
+/** Materials of the first-person arms; one pair is shared by all weapons so a skin change recolors them at once. */
+export interface ArmMaterials {
+  sleeve: MeshStandardMaterial;
+  glove: MeshStandardMaterial;
+}
+
+export function armMaterials(): ArmMaterials {
+  return {
+    sleeve: new MeshStandardMaterial({ color: "#4f6b3a", roughness: 0.85 }),
+    glove: new MeshStandardMaterial({ color: "#3a2c1f", roughness: 0.6 }),
+  };
+}
 
 export interface GunModel {
   group: Group;
@@ -26,6 +40,8 @@ export interface GunModel {
   capsuleGlow: MeshStandardMaterial;
   /** Color of the bolt and the muzzle glow. */
   color: string;
+  /** The supporting arm, which fetches the new capsule while reloading. Missing on weapons built without arms. */
+  supportArm?: Group;
 }
 
 const gunmetal = new MeshPhysicalMaterial({ color: "#2b2f36", metalness: 0.85, roughness: 0.32, clearcoat: 0.5, clearcoatRoughness: 0.25 });
@@ -60,8 +76,55 @@ function capsule(group: Group, color: string, radius: number, length: number, x:
   return { capsule: holder, capsuleRest: holder.position.clone(), capsuleGlow: glass };
 }
 
-function pistol(): GunModel {
+const UP = new Vector3(0, 1, 0);
+
+/** Tapered tube from one point to another. */
+function limb(group: Group, material: Material, from: Vector3, to: Vector3, fromRadius: number, toRadius: number) {
+  const axis = to.clone().sub(from);
+  const length = axis.length();
+  const mesh = new Mesh(new CylinderGeometry(toRadius, fromRadius, length, 14), material);
+  mesh.position.copy(from).addScaledVector(axis, 0.5);
+  mesh.quaternion.copy(new Quaternion().setFromUnitVectors(UP, axis.divideScalar(length)));
+  group.add(mesh);
+}
+
+const FINGERS = 4;
+
+/**
+ * A gloved hand at `hand` with a sleeved forearm running back to `elbow`, which lies outside the view.
+ * `grip` is the size of the fist around whatever it holds and `tilt` its rotation about X; with `fingers`
+ * they curl around the front of it.
+ */
+function arm(materials: ArmMaterials, hand: Vector3, elbow: Vector3, grip: Vector3, tilt: number, fingers: boolean): Group {
+  const group = new Group();
+  const fist = new Group();
+  fist.position.copy(hand);
+  fist.rotation.x = tilt;
+  group.add(fist);
+  part(fist, rbox(grip.x, grip.y, grip.z, Math.min(grip.x, grip.y, grip.z) * 0.35), materials.glove, 0, 0, 0);
+  if (fingers) {
+    const height = grip.y / FINGERS;
+    const finger = rbox(grip.x * 1.12, height * 0.84, grip.z * 0.5, height * 0.3);
+    for (let i = 0; i < FINGERS; i++) part(fist, finger, materials.glove, 0, grip.y / 2 - height * (i + 0.5), -grip.z * 0.34);
+    part(fist, rbox(grip.x * 0.34, grip.y * 0.3, grip.z * 0.8, grip.x * 0.12), materials.glove, -grip.x * 0.55, grip.y * 0.34, -grip.z * 0.08);
+  }
+  const towardsElbow = elbow.clone().sub(hand).normalize();
+  const wrist = hand.clone().addScaledVector(towardsElbow, grip.z * 0.4);
+  const cuff = wrist.clone().addScaledVector(towardsElbow, 0.035);
+  limb(group, materials.glove, wrist, cuff, 0.03, 0.033);
+  limb(group, materials.sleeve, cuff, cuff.clone().addScaledVector(towardsElbow, 0.012), 0.043, 0.043);
+  limb(group, materials.sleeve, cuff, elbow, 0.038, 0.052);
+  return group;
+}
+
+function pistol(arms?: ArmMaterials): GunModel {
   const g = new Group();
+  let supportArm: Group | undefined;
+  if (arms) {
+    g.add(arm(arms, new Vector3(0.004, -0.058, 0.026), new Vector3(0.3, -0.32, 0.36), new Vector3(0.05, 0.085, 0.07), 0.25, true));
+    supportArm = arm(arms, new Vector3(-0.03, -0.078, 0.02), new Vector3(-0.36, -0.3, 0.3), new Vector3(0.05, 0.06, 0.075), 0.25, false);
+    g.add(supportArm);
+  }
   const color = "#3fffe8";
   const accent = glow(color, 1.4);
   part(g, rbox(0.034, 0.042, 0.2, 0.007), gunmetal, 0, 0.03, -0.06);
@@ -79,15 +142,22 @@ function pistol(): GunModel {
   return {
     group: g,
     muzzle: new Vector3(0, 0.03, -0.19),
-    hip: new Vector3(0.15, -0.15, -0.34),
+    hip: new Vector3(0.14, -0.13, -0.34),
     ads: new Vector3(0, -0.06, -0.26),
     ...capsule(g, color, 0.011, 0.05, 0, -0.112, 0.034, 0.25),
     color,
+    supportArm,
   };
 }
 
-function rifle(): GunModel {
+function rifle(arms?: ArmMaterials): GunModel {
   const g = new Group();
+  let supportArm: Group | undefined;
+  if (arms) {
+    g.add(arm(arms, new Vector3(0.004, -0.075, 0.005), new Vector3(0.24, -0.34, 0.42), new Vector3(0.052, 0.085, 0.07), 0.3, true));
+    supportArm = arm(arms, new Vector3(0, -0.038, -0.3), new Vector3(-0.36, -0.3, 0.2), new Vector3(0.066, 0.05, 0.09), 0, false);
+    g.add(supportArm);
+  }
   const color = "#ffa33d";
   const accent = glow(color, 1.6);
   part(g, rbox(0.05, 0.07, 0.32, 0.008), gunmetal, 0, 0, -0.08);
@@ -113,11 +183,13 @@ function rifle(): GunModel {
     ads: new Vector3(0, -0.07, -0.24),
     ...capsule(g, color, 0.02, 0.1, 0, -0.1, -0.12, -0.15),
     color,
+    supportArm,
   };
 }
 
-export function buildGun(id: WeaponId): GunModel {
-  const gun = id === "rifle" ? rifle() : pistol();
+/** With `arms` the weapon comes with the hands holding it, as the player sees their own. */
+export function buildGun(id: WeaponId, arms?: ArmMaterials): GunModel {
+  const gun = id === "rifle" ? rifle(arms) : pistol(arms);
   gun.group.traverse((c) => {
     c.castShadow = false;
     c.receiveShadow = false;

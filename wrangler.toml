@@ -24,3 +24,9 @@ binding = "DB"
 database_name = "zombie-breakout-db"
 database_id = "167a7efb-0434-4c7b-8c91-bdb59f8bc82a"
 migrations_dir = "migrations"
+
+# Account mails (email confirmation, password reset) are sent through Resend.
+# MAIL_FROM is an address on a domain verified at Resend, e.g. "Zombie Breakout <noreply@example.com>".
+# The API key is a secret: npx wrangler secret put RESEND_API_KEY
+[vars]
+MAIL_FROM = ""

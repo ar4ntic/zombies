@@ -182,6 +182,8 @@ export interface LeaderboardEntry {
   endedAt: string;
   /** Set when the request named this player (and, if given, this nickname). */
   me?: boolean;
+  /** Set when the nickname belongs to an account with a confirmed email address. */
+  verified?: boolean;
 }
 
 export interface LeaderboardResponse {
@@ -191,3 +193,29 @@ export interface LeaderboardResponse {
   energy: string;
   entries: LeaderboardEntry[];
 }
+
+export interface AccountInfo {
+  email: string;
+  /** The one nickname the account owns, once chosen. */
+  nickname: string | null;
+  /** Whether the email address is confirmed; only then is the nickname protected from others. */
+  verified: boolean;
+}
+
+/** Answer of the account endpoints. */
+export interface AccountResponse {
+  account: AccountInfo | null;
+  /** Set when a confirmation or reset mail was requested: whether it could be sent. */
+  mailSent?: boolean;
+  error?: string;
+}
+
+export interface NicknameCheck {
+  /** The nickname belongs to an account with a confirmed email address. */
+  protected: boolean;
+  /** That account is the one this browser is logged in to. */
+  mine: boolean;
+}
+
+export const PASSWORD_MIN_LENGTH = 8;
+export const PASSWORD_MAX_LENGTH = 200;

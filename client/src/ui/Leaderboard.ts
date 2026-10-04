@@ -34,7 +34,8 @@ export class Leaderboard {
     this.list.innerHTML = board.entries
       .map(
         (e) =>
-          `<li class="${e.me ? "me" : ""}"><span class="rank">${e.rank}</span><span class="name">${escapeHtml(e.nickname)}</span>` +
+          `<li class="${e.me ? "me" : ""}"><span class="rank">${e.rank}</span>` +
+          `<span class="name">${escapeHtml(e.nickname)}${e.verified ? `<span class="verified" title="Protected nickname">✓</span>` : ""}</span>` +
           `<span class="pts">${e.score.toLocaleString()}</span></li>`,
       )
       .join("");
