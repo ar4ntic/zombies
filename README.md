@@ -28,8 +28,8 @@ pnpm build
 npx wrangler dev            # serves client/dist and the API on http://localhost:8787
 ```
 
-Graphics are chosen in the main menu or the in-game menu (Auto, Low, Medium, High, Ultra; stored in
-localStorage). Auto scales the render resolution to hold the display refresh rate (at most 60 fps) and
+Graphics quality (Auto, Low, Medium, High, Ultra) and mouse sensitivity are set under Settings in the
+main menu or in the in-game menu, and stored in localStorage. Auto scales the render resolution to hold the display refresh rate (at most 60 fps) and
 drops ambient occlusion, bloom and shadow resolution only when the resolution is already at its minimum.
 Append `?quality=auto|low|medium|high|ultra` to the URL to override the setting.
 
