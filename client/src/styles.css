@@ -299,6 +299,11 @@ body.look-testing #ui {
   color: var(--accent);
 }
 
+.menu .setting-hint {
+  font-size: 0.8rem;
+  opacity: 0.6;
+}
+
 .menu .join-hint {
   margin: -8px 0 0;
   font-size: 0.8rem;
@@ -1341,15 +1346,28 @@ kbd {
 
 .hud .countdown {
   position: absolute;
-  top: 40%;
+  top: 38%;
   left: 50%;
   transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   font-size: 7rem;
   font-weight: 900;
+  line-height: 1;
   color: var(--accent);
   text-shadow:
     0 0 40px rgba(125, 255, 106, 0.55),
     var(--hud-shadow);
+}
+
+.hud .countdown .label {
+  margin-bottom: 0.4rem;
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text);
 }
 
 .hud .lobby {

@@ -19,6 +19,13 @@ export interface GunModel {
   muzzle: Vector3;
   hip: Vector3;
   ads: Vector3;
+  /** The energy capsule, which drops out and slides back in while reloading. */
+  capsule: Group;
+  capsuleRest: Vector3;
+  /** Glows with the charge left in the capsule. */
+  capsuleGlow: MeshStandardMaterial;
+  /** Color of the bolt and the muzzle glow. */
+  color: string;
 }
 
 const gunmetal = new MeshPhysicalMaterial({ color: "#2b2f36", metalness: 0.85, roughness: 0.32, clearcoat: 0.5, clearcoatRoughness: 0.25 });
@@ -40,17 +47,32 @@ function part(group: Group, geometry: BufferGeometry, material: Material, x: num
 const rbox = (w: number, h: number, d: number, r = 0.005) => new RoundedBoxGeometry(w, h, d, 3, r);
 const barrel = (r: number, l: number) => new CylinderGeometry(r, r, l, 16).rotateX(Math.PI / 2);
 
+function capsule(group: Group, color: string, radius: number, length: number, x: number, y: number, z: number, rx: number) {
+  const holder = new Group();
+  const glass = glow(color, 3);
+  const cap = new CylinderGeometry(radius * 1.12, radius * 1.12, length * 0.14, 16);
+  part(holder, new CylinderGeometry(radius, radius, length, 16), glass, 0, 0, 0);
+  part(holder, cap, trim, 0, length * 0.5, 0);
+  part(holder, cap, trim, 0, -length * 0.5, 0);
+  holder.position.set(x, y, z);
+  holder.rotation.x = rx;
+  group.add(holder);
+  return { capsule: holder, capsuleRest: holder.position.clone(), capsuleGlow: glass };
+}
+
 function pistol(): GunModel {
   const g = new Group();
-  const accent = glow("#3fffe8", 1.4);
+  const color = "#3fffe8";
+  const accent = glow(color, 1.4);
   part(g, rbox(0.034, 0.042, 0.2, 0.007), gunmetal, 0, 0.03, -0.06);
   part(g, rbox(0.03, 0.026, 0.17), polymer, 0, 0.002, -0.05);
   part(g, rbox(0.03, 0.105, 0.046, 0.008), polymer, 0, -0.055, 0.02, 0.25);
   part(g, rbox(0.01, 0.025, 0.035, 0.003), polymer, 0, -0.022, -0.035);
   part(g, barrel(0.009, 0.035), trim, 0, 0.03, -0.17);
+  part(g, barrel(0.013, 0.012), glow(color, 2.2), 0, 0.03, -0.184);
   part(g, new BoxGeometry(0.002, 0.008, 0.13), accent, 0.0175, 0.034, -0.07);
   part(g, new BoxGeometry(0.002, 0.008, 0.13), accent, -0.0175, 0.034, -0.07);
-  part(g, barrel(0.011, 0.02), glow("#3fffe8", 0.6), 0, 0.03, 0.045);
+  part(g, barrel(0.011, 0.02), glow(color, 0.6), 0, 0.03, 0.045);
   part(g, new BoxGeometry(0.004, 0.009, 0.006), trim, 0, 0.055, -0.15);
   part(g, new BoxGeometry(0.014, 0.008, 0.006), trim, 0, 0.055, 0.02);
   part(g, new SphereGeometry(0.0016, 8, 6), glow("#7dff6a", 8), 0, 0.0605, -0.15);
@@ -59,19 +81,23 @@ function pistol(): GunModel {
     muzzle: new Vector3(0, 0.03, -0.19),
     hip: new Vector3(0.15, -0.15, -0.34),
     ads: new Vector3(0, -0.06, -0.26),
+    ...capsule(g, color, 0.011, 0.05, 0, -0.112, 0.034, 0.25),
+    color,
   };
 }
 
 function rifle(): GunModel {
   const g = new Group();
-  const accent = glow("#ffa33d", 1.6);
+  const color = "#ffa33d";
+  const accent = glow(color, 1.6);
   part(g, rbox(0.05, 0.07, 0.32, 0.008), gunmetal, 0, 0, -0.08);
   part(g, rbox(0.042, 0.048, 0.22, 0.008), polymer, 0, 0.004, -0.33);
   part(g, barrel(0.009, 0.08), trim, 0, 0.004, -0.48);
   part(g, barrel(0.016, 0.03), gunmetal, 0, 0.004, -0.52);
+  part(g, barrel(0.019, 0.01), glow(color, 2.4), 0, 0.004, -0.538);
   part(g, rbox(0.04, 0.065, 0.16, 0.01), polymer, 0, -0.012, 0.15);
   part(g, rbox(0.032, 0.09, 0.04, 0.008), polymer, 0, -0.07, 0.0, 0.3);
-  part(g, rbox(0.03, 0.11, 0.055, 0.006), gunmetal, 0, -0.085, -0.12, -0.15);
+  part(g, rbox(0.036, 0.03, 0.06, 0.006), gunmetal, 0, -0.04, -0.12);
   part(g, new BoxGeometry(0.024, 0.008, 0.22), trim, 0, 0.039, -0.08);
   part(g, new BoxGeometry(0.002, 0.01, 0.26), accent, 0.0255, 0.012, -0.1);
   part(g, new BoxGeometry(0.002, 0.01, 0.26), accent, -0.0255, 0.012, -0.1);
@@ -85,6 +111,8 @@ function rifle(): GunModel {
     muzzle: new Vector3(0, 0.004, -0.54),
     hip: new Vector3(0.14, -0.15, -0.36),
     ads: new Vector3(0, -0.07, -0.24),
+    ...capsule(g, color, 0.02, 0.1, 0, -0.1, -0.12, -0.15),
+    color,
   };
 }
 

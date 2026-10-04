@@ -1,7 +1,9 @@
 import { Encoder } from "@colyseus/schema";
 import {
   DEFAULT_DIFFICULTY,
+  DEFAULT_ENERGY_MODE,
   DEFAULT_ROUND_MINUTES,
+  DEFAULT_SKIN,
   DIFFICULTIES,
   GameState,
   MAX_PLAYERS,
@@ -11,11 +13,14 @@ import {
   RECONNECT_GRACE_SECONDS,
   StateFrame,
   TICK_MS,
-  WEAPONS,
   isDifficulty,
+  isEnergyMode,
   isRoundMinutes,
+  isSkin,
+  isWeaponId,
   type ClientMessages,
   type DifficultyId,
+  type EnergyMode,
   type ServerEvents,
   type SessionInfo,
   type ShotEvent,
@@ -37,6 +42,7 @@ export interface RoomOptions {
   difficulty: DifficultyId;
   /** Round length in seconds. */
   duration: number;
+  energy: EnergyMode;
 }
 
 export function parseRoomOptions(input: unknown): RoomOptions {
@@ -44,12 +50,13 @@ export function parseRoomOptions(input: unknown): RoomOptions {
   const solo = options.solo === true;
   const difficulty = isDifficulty(options.difficulty) ? options.difficulty : DEFAULT_DIFFICULTY;
   const minutes = isRoundMinutes(options.minutes) ? options.minutes : DEFAULT_ROUND_MINUTES;
+  const energy = isEnergyMode(options.energy) ? options.energy : DEFAULT_ENERGY_MODE;
   const testDuration = Number(options.duration);
   const duration =
     solo && options.duration != null && Number.isFinite(testDuration)
       ? Math.round(Math.max(MIN_TEST_DURATION, Math.min(MAX_TEST_DURATION, testDuration)))
       : minutes * 60;
-  return { solo, difficulty, duration };
+  return { solo, difficulty, duration, energy };
 }
 
 interface RoomClient {
@@ -89,9 +96,9 @@ export class GameRoom {
         zombieHit: (e) => this.broadcast("zombieHit", e),
         kill: (e) => this.broadcast("kill", e),
         playerHurt: (e) => this.broadcast("playerHurt", e),
-        ammoRefill: (weapon, amount) => this.broadcast("ammo", { weapon, amount }),
+        pickup: (e) => this.broadcast("pickup", e),
       },
-      { difficulty: DIFFICULTIES[options.difficulty], duration: options.duration },
+      { difficulty: DIFFICULTIES[options.difficulty], duration: options.duration, energy: options.energy },
       !options.solo,
     );
     this.unusedTimer = setTimeout(() => this.dispose(), UNUSED_SESSION_MS);
@@ -107,6 +114,7 @@ export class GameRoom {
       full: this.full,
       solo: this.state.solo,
       difficulty: this.state.difficulty,
+      energy: this.state.energy,
       minutes: this.state.duration / 60,
       duration: this.state.duration,
       players: this.clients.size,
@@ -114,7 +122,7 @@ export class GameRoom {
     };
   }
 
-  join(socket: WebSocket, rawName: string | null, rawPlayerId: string | null) {
+  join(socket: WebSocket, rawName: string | null, rawPlayerId: string | null, rawSkin: string | null) {
     const id = this.uniqueId();
     const taken = [...this.clients.values()].some((c) => c.playerId === rawPlayerId);
     const playerId = isPlayerId(rawPlayerId) && !taken ? rawPlayerId : crypto.randomUUID();
@@ -122,7 +130,7 @@ export class GameRoom {
     this.clients.set(id, client);
 
     const name = String(rawName ?? "").trim().slice(0, NICKNAME_MAX_LENGTH) || "Survivor";
-    const player = new PlayerState({ name });
+    const player = new PlayerState({ name, skin: isSkin(rawSkin) ? rawSkin : DEFAULT_SKIN });
     this.state.players.set(id, player);
     this.sim.addPlayer(id, player);
     if (!this.state.hostId) this.state.hostId = id;
@@ -207,7 +215,7 @@ export class GameRoom {
         if (allFinite([msg?.x, msg?.y, msg?.z, msg?.yaw, msg?.pitch])) this.sim.move(player, msg.x, msg.y, msg.z, msg.yaw, msg.pitch);
         break;
       case "shoot": {
-        if (!msg || !(msg.weapon in WEAPONS) || !isVec3(msg.origin) || !isVec3(msg.end)) return;
+        if (!msg || !isWeaponId(msg.weapon) || !isVec3(msg.origin) || !isVec3(msg.end)) return;
         const hit = msg.hit && typeof msg.hit.zombie === "string" ? { zombie: msg.hit.zombie, head: !!msg.hit.head } : undefined;
         if (!this.sim.shoot(client.id, player, { weapon: msg.weapon, origin: msg.origin, end: msg.end, hit })) return;
         const shot: ShotEvent = { by: client.id, weapon: msg.weapon, origin: msg.origin, end: msg.end };
@@ -215,7 +223,13 @@ export class GameRoom {
         break;
       }
       case "weapon":
-        if (msg?.weapon in WEAPONS) player.weapon = msg.weapon;
+        if (isWeaponId(msg?.weapon)) player.weapon = msg.weapon;
+        break;
+      case "collect":
+        if (typeof msg?.id === "string") this.sim.collect(client.id, player, msg.id);
+        break;
+      case "skin":
+        if (isSkin(msg?.skin)) player.skin = msg.skin;
         break;
       case "pause":
         if (this.state.solo) this.state.paused = !!msg?.paused;
@@ -224,8 +238,9 @@ export class GameRoom {
         if (!this.hostInLobby(client)) return this.reject(client, "Only the host can change the settings in the lobby");
         const difficulty: unknown = msg?.difficulty ?? this.state.difficulty;
         const minutes: unknown = msg?.minutes ?? this.state.duration / 60;
-        if (!isDifficulty(difficulty) || !isRoundMinutes(minutes)) return this.reject(client, "Unknown settings");
-        this.sim.configure({ difficulty: DIFFICULTIES[difficulty], duration: minutes * 60 });
+        const energy: unknown = msg?.energy ?? this.state.energy;
+        if (!isDifficulty(difficulty) || !isRoundMinutes(minutes) || !isEnergyMode(energy)) return this.reject(client, "Unknown settings");
+        this.sim.configure({ difficulty: DIFFICULTIES[difficulty], duration: minutes * 60, energy });
         break;
       }
       case "start":
@@ -312,6 +327,7 @@ export class GameRoom {
         level: this.state.levelId,
         difficulty: this.state.difficulty,
         durationMinutes: isRoundMinutes(minutes) ? minutes : 0,
+        energy: this.state.energy,
         sessionCode: this.code,
         solo: this.state.solo,
         teamScore: this.state.teamScore,
@@ -323,6 +339,8 @@ export class GameRoom {
           kills: player.kills,
           headshots: player.headshots,
           deaths: player.deaths,
+          shots: player.shots,
+          hits: player.hits,
         })),
       });
       for (const { client } of entries) {

@@ -35,7 +35,7 @@ async function createSession(request: Request, env: Env): Promise<Response> {
     const code = generateSessionCode();
     const info = await stub(env, code).init(code, options);
     if (!info) continue;
-    const body: CreateSessionResponse = { code, solo: info.solo, difficulty: info.difficulty, duration: info.duration };
+    const body: CreateSessionResponse = { code, solo: info.solo, difficulty: info.difficulty, energy: info.energy, duration: info.duration };
     return json(body, 201);
   }
   return json({ error: "Could not allocate a session code" }, 503);
@@ -56,7 +56,7 @@ async function connect(request: Request, env: Env, code: string): Promise<Respon
 
 async function getLeaderboard(env: Env, params: URLSearchParams): Promise<Response> {
   const category = parseCategory(params);
-  if (!category) return json({ error: "difficulty and a standard round length (minutes) are required" }, 400);
+  if (!category) return json({ error: "difficulty, a standard round length (minutes) and a known energy mode are required" }, 400);
   try {
     const playerId = params.get("player");
     const me = playerId ? { playerId, nickname: params.get("name")?.trim() || undefined } : undefined;

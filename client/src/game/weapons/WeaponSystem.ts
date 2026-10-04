@@ -5,22 +5,32 @@ import {
   WEAPON_ORDER,
   raycastBoxes,
   type Box,
+  type EnergyMode,
   type ShootMessage,
   type WeaponId,
 } from "@zombies/shared";
 import type { Input } from "../Input.ts";
 import type { PlayerController } from "../PlayerController.ts";
+import type { Bolts } from "../fx/Bolts.ts";
 import type { Particles } from "../fx/Particles.ts";
 import type { Sound } from "../fx/Sound.ts";
-import type { Tracers } from "../fx/Tracers.ts";
 import type { ZombieManager } from "../zombies/ZombieManager.ts";
 import type { ViewModel } from "./ViewModel.ts";
 
-export const TRACER_COLORS: Record<WeaponId, string> = { pistol: "#7ffff0", rifle: "#ffc46b" };
+/** Color, width and length in meters of each weapon's laser bolt. */
+export const BOLTS: Record<WeaponId, { color: string; width: number; length: number }> = {
+  pistol: { color: "#7ffff0", width: 0.014, length: 0.9 },
+  rifle: { color: "#ffc46b", width: 0.017, length: 1.5 },
+};
 const ZOMBIE_IMPACT = new Color("#9dff7a");
 const WORLD_IMPACT = new Color("#ffd08a");
 /** A click this many seconds before the weapon is ready still fires. */
 const FIRE_BUFFER = 0.15;
+/** A reload key press is kept this long, so one made just before the weapon can reload still counts. */
+const RELOAD_BUFFER = 0.4;
+/** Scrolling has to pause this long before the wheel switches weapons again, so one swipe is one switch. */
+const WHEEL_PAUSE = 0.25;
+const EMPTY_SOUND_INTERVAL = 0.3;
 
 interface Ammo {
   magazine: number;
@@ -35,7 +45,7 @@ export interface WeaponDeps {
   zombies: ZombieManager;
   colliders: Box[];
   particles: Particles;
-  tracers: Tracers;
+  bolts: Bolts;
   sound: Sound;
   onShoot(msg: ShootMessage): void;
   onSwitch(weapon: WeaponId): void;
@@ -49,6 +59,9 @@ export class WeaponSystem {
   private reloadTimer = -1;
   private bloom = 0;
   private fireBuffer = 0;
+  private reloadBuffer = 0;
+  private wheelPause = 0;
+  private mode: EnergyMode = "limited";
   private readonly origin = new Vector3();
   private readonly dir = new Vector3();
   private readonly right = new Vector3();
@@ -60,13 +73,16 @@ export class WeaponSystem {
     this.reset();
   }
 
-  reset() {
+  /** Full capsules for a new round; with infinite energy the spare capsules never run out. */
+  reset(mode = this.mode) {
+    this.mode = mode;
     for (const id of WEAPON_ORDER) {
       const def = WEAPONS[id];
-      this.ammo.set(id, { magazine: def.magazine, reserve: def.startReserve });
+      this.ammo.set(id, { magazine: def.magazine, reserve: mode === "infinite" ? Infinity : def.startReserve });
     }
     this.cooldown = 0;
     this.reloadTimer = -1;
+    this.reloadBuffer = 0;
     this.bloom = 0;
     this.switchTo("pistol");
   }
@@ -97,6 +113,22 @@ export class WeaponSystem {
     return (base + moving) * aim;
   }
 
+  /** Share of the current energy capsule left, 0..1. */
+  get charge(): number {
+    return this.magazine / WEAPONS[this.current].magazine;
+  }
+
+  /** The capsule is empty and there is no spare one to swap in. */
+  get outOfEnergy(): boolean {
+    const ammo = this.ammo.get(this.current)!;
+    return ammo.magazine === 0 && ammo.reserve <= 0;
+  }
+
+  /** Whether collecting more spare energy for this weapon would add anything. */
+  canTake(weapon: WeaponId): boolean {
+    return this.ammo.get(weapon)!.reserve < WEAPONS[weapon].maxReserve;
+  }
+
   refillMagazine(weapon: WeaponId) {
     this.ammo.get(weapon)!.magazine = WEAPONS[weapon].magazine;
     if (weapon === this.current) this.reloadTimer = -1;
@@ -106,8 +138,10 @@ export class WeaponSystem {
     const ammo = this.ammo.get(weapon);
     if (!ammo) return;
     ammo.reserve = Math.min(WEAPONS[weapon].maxReserve, ammo.reserve + amount);
+    if (weapon === this.current && ammo.magazine === 0) this.startReload();
   }
 
+  /** Switching away abandons a reload in progress; a weapon drawn with an empty capsule reloads by itself. */
   private switchTo(id: WeaponId) {
     if (id === this.current) {
       this.d.viewModel.equip(id);
@@ -118,14 +152,16 @@ export class WeaponSystem {
     this.cooldown = Math.max(this.cooldown, 0.3);
     this.d.viewModel.equip(id);
     this.d.onSwitch(id);
+    if (this.magazine === 0) this.startReload();
   }
 
-  private startReload() {
+  private startReload(): boolean {
     const def = WEAPONS[this.current];
     const ammo = this.ammo.get(this.current)!;
-    if (this.reloading || ammo.magazine >= def.magazine || ammo.reserve <= 0) return;
+    if (this.reloading || ammo.magazine >= def.magazine || ammo.reserve <= 0) return false;
     this.reloadTimer = def.reloadTime;
     this.d.sound.reload();
+    return true;
   }
 
   update(dt: number, active: boolean) {
@@ -141,8 +177,15 @@ export class WeaponSystem {
         const moved = Math.min(def.magazine - ammo.magazine, ammo.reserve);
         ammo.magazine += moved;
         if (Number.isFinite(ammo.reserve)) ammo.reserve -= moved;
+        this.d.sound.reloadDone();
       }
     }
+
+    if (input.pressed("reload")) this.reloadBuffer = RELOAD_BUFFER;
+    else this.reloadBuffer -= dt;
+    const wheel = input.consumeWheel();
+    const wheelReady = this.wheelPause <= 0;
+    this.wheelPause = wheel !== 0 ? WHEEL_PAUSE : this.wheelPause - dt;
 
     player.aiming = active && !player.dead && input.isDown("aim");
     if (!active || player.dead) {
@@ -152,13 +195,12 @@ export class WeaponSystem {
 
     if (input.pressed("weapon1")) this.switchTo("pistol");
     if (input.pressed("weapon2")) this.switchTo("rifle");
-    const wheel = input.consumeWheel();
-    if (wheel !== 0) {
+    if (wheel !== 0 && wheelReady) {
       const index = WEAPON_ORDER.indexOf(this.current);
       const next = WEAPON_ORDER[(index + (wheel > 0 ? 1 : WEAPON_ORDER.length - 1)) % WEAPON_ORDER.length]!;
       this.switchTo(next);
     }
-    if (input.pressed("reload")) this.startReload();
+    if (this.reloadBuffer > 0 && this.startReload()) this.reloadBuffer = 0;
 
     if (input.pressed("fire")) this.fireBuffer = FIRE_BUFFER;
     else this.fireBuffer -= dt;
@@ -168,7 +210,10 @@ export class WeaponSystem {
 
     const ammo = this.ammo.get(this.current)!;
     if (ammo.magazine <= 0) {
-      this.startReload();
+      if (!this.startReload()) {
+        this.cooldown = EMPTY_SOUND_INTERVAL;
+        this.d.sound.empty();
+      }
       return;
     }
     ammo.magazine--;
@@ -178,7 +223,7 @@ export class WeaponSystem {
   }
 
   private fire() {
-    const { camera, player, viewModel, zombies, colliders, particles, tracers, sound } = this.d;
+    const { camera, player, viewModel, zombies, colliders, particles, bolts, sound } = this.d;
     const def = WEAPONS[this.current];
 
     camera.updateMatrixWorld();
@@ -206,21 +251,26 @@ export class WeaponSystem {
 
     viewModel.fire();
     viewModel.muzzleWorld(this.muzzle);
-    tracers.spawn(this.muzzle, this.end, TRACER_COLORS[this.current], this.current === "rifle" ? 0.01 : 0.008);
     sound.shot(this.current);
     player.addRecoil(def.recoil * (1 - 0.4 * viewModel.aimProgress), (Math.random() - 0.5) * def.recoil * 0.5);
 
+    // The shot hits at once; the bolt is drawn flying there and its sparks appear when it arrives.
     const back = this.dir.clone().negate();
+    const impact = this.end.clone();
+    let sparks: (() => void) | undefined;
     if (hit) {
       zombies.hit(hit.id, this.origin, hit.head);
-      particles.burst(this.end, { count: hit.head ? 22 : 12, color: ZOMBIE_IMPACT, speed: 3, life: 0.45, size: 0.035, direction: back, spread: 0.9, gravity: 4 });
       sound.hit(hit.head);
       this.d.onHit(hit.head);
+      const count = hit.head ? 22 : 12;
+      sparks = () => particles.burst(impact, { count, color: ZOMBIE_IMPACT, speed: 3, life: 0.45, size: 0.035, direction: back, spread: 0.9, gravity: 4 });
     } else if (worldDist <= def.range) {
-      particles.burst(this.end, { count: 8, color: WORLD_IMPACT, speed: 2.5, life: 0.3, size: 0.025, direction: back, spread: 0.8, gravity: 9 });
+      sparks = () => particles.burst(impact, { count: 8, color: WORLD_IMPACT, speed: 2.5, life: 0.3, size: 0.025, direction: back, spread: 0.8, gravity: 9 });
     }
+    const bolt = BOLTS[this.current];
+    bolts.spawn(this.muzzle, this.end, bolt.color, bolt.width, bolt.length, sparks);
 
-    // Other players see the shot from roughly where this player holds the gun.
+    // Other players see the bolt leave from roughly where this player holds the gun.
     const gunOrigin = this.origin.clone().addScaledVector(this.right, 0.15).addScaledVector(this.up, -0.12).addScaledVector(camera.getWorldDirection(new Vector3()), 0.5);
     this.d.onShoot({
       weapon: this.current,

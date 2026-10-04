@@ -1,14 +1,19 @@
 import {
   DEFAULT_DIFFICULTY,
+  DEFAULT_ENERGY_MODE,
   DEFAULT_ROUND_MINUTES,
   DIFFICULTIES,
   DIFFICULTY_IDS,
+  ENERGY_MODES,
+  ENERGY_MODE_IDS,
   NICKNAME_MAX_LENGTH,
   ROUND_MINUTES,
   SESSION_CODE_LENGTH,
   isDifficulty,
+  isEnergyMode,
   isRoundMinutes,
   type DifficultyId,
+  type EnergyMode,
 } from "@zombies/shared";
 import type { SessionChoice } from "../game/Game.ts";
 import { Leaderboard } from "./Leaderboard.ts";
@@ -18,10 +23,12 @@ import { settingsControls, type SettingsTarget } from "./Settings.ts";
 const NAME_KEY = "zombies.nickname";
 const DIFFICULTY_KEY = "zombies.difficulty";
 const MINUTES_KEY = "zombies.minutes";
+const ENERGY_KEY = "zombies.energy";
 
 export interface GameSettings {
   difficulty: DifficultyId;
   minutes: number;
+  energy: EnergyMode;
 }
 
 export interface MenuResult {
@@ -33,15 +40,36 @@ export interface MenuResult {
 function loadSettings(): GameSettings {
   const difficulty = localStorage.getItem(DIFFICULTY_KEY);
   const minutes = Number(localStorage.getItem(MINUTES_KEY));
+  const energy = localStorage.getItem(ENERGY_KEY);
   return {
     difficulty: isDifficulty(difficulty) ? difficulty : DEFAULT_DIFFICULTY,
     minutes: isRoundMinutes(minutes) ? minutes : DEFAULT_ROUND_MINUTES,
+    energy: isEnergyMode(energy) ? energy : DEFAULT_ENERGY_MODE,
   };
 }
 
 export function saveSettings(settings: GameSettings) {
   localStorage.setItem(DIFFICULTY_KEY, settings.difficulty);
   localStorage.setItem(MINUTES_KEY, String(settings.minutes));
+  localStorage.setItem(ENERGY_KEY, settings.energy);
+}
+
+/** The round setting a click on one of the segmented controls of `settingsSelectors` stands for. */
+export function settingChange(setting: string | undefined, value: string): Partial<GameSettings> | undefined {
+  switch (setting) {
+    case "difficulty":
+      return isDifficulty(value) ? { difficulty: value } : undefined;
+    case "minutes":
+      return isRoundMinutes(Number(value)) ? { minutes: Number(value) } : undefined;
+    case "energy":
+      return isEnergyMode(value) ? { energy: value } : undefined;
+  }
+  return undefined;
+}
+
+/** The selected value of each segmented control of `settingsSelectors`. */
+export function settingValue(setting: string | undefined, settings: GameSettings): string {
+  return setting === "difficulty" ? settings.difficulty : setting === "energy" ? settings.energy : String(settings.minutes);
 }
 
 export function settingsSelectors(settings: GameSettings): string {
@@ -53,6 +81,11 @@ export function settingsSelectors(settings: GameSettings): string {
     <div class="setting">
       <span class="setting-label">Round length</span>
       ${segmented("minutes", ROUND_MINUTES.map((m) => [String(m), `${m} min`]), String(settings.minutes))}
+    </div>
+    <div class="setting">
+      <span class="setting-label">Rifle energy</span>
+      ${segmented("energy", ENERGY_MODE_IDS.map((id) => [id, ENERGY_MODES[id].label]), settings.energy)}
+      <span class="setting-hint">Limited: collect the energy capsules lying around the arena.</span>
     </div>`;
 }
 
@@ -76,7 +109,7 @@ export function showMenu(root: HTMLElement, device: SettingsTarget, inviteCode: 
         <input name="code" maxlength="${SESSION_CODE_LENGTH}" autocomplete="off" placeholder="Session code" />
         <button data-action="join">Join</button>
       </div>
-      <p class="join-hint">Joining players use the host's difficulty and round length.</p>
+      <p class="join-hint">Joining players use the host's round settings.</p>
       <button type="button" data-action="settings">Settings</button>
       <p class="error" hidden></p>
     </div>
@@ -95,7 +128,7 @@ export function showMenu(root: HTMLElement, device: SettingsTarget, inviteCode: 
   nameInput.value = localStorage.getItem(NAME_KEY) ?? "";
 
   const board = new Leaderboard("Top survivors");
-  const showBoard = () => void board.show(settings.difficulty, settings.minutes, nameInput.value.trim());
+  const showBoard = () => void board.show(settings.difficulty, settings.minutes, settings.energy, nameInput.value.trim());
   panel.append(board.el);
   showBoard();
   nameInput.addEventListener("change", showBoard);
@@ -120,8 +153,7 @@ export function showMenu(root: HTMLElement, device: SettingsTarget, inviteCode: 
       if (button && group) {
         const value = button.dataset.value!;
         selectSegment(group, value);
-        if (group.dataset.setting === "difficulty") settings.difficulty = value as DifficultyId;
-        else settings.minutes = Number(value);
+        Object.assign(settings, settingChange(group.dataset.setting, value));
         saveSettings(settings);
         showBoard();
         return;

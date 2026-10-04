@@ -35,7 +35,7 @@ export class GameSession extends DurableObject<Env> {
     const { 0: client, 1: server } = new WebSocketPair();
     server.accept();
     if (token) room.reconnect(server, token);
-    else room.join(server, params.get("name"), params.get("playerId"));
+    else room.join(server, params.get("name"), params.get("playerId"), params.get("skin"));
     return new Response(null, { status: 101, webSocket: client });
   }
 }

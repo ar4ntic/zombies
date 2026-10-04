@@ -1,6 +1,6 @@
 import type { WeaponId } from "@zombies/shared";
 
-/** Small synthesized sound set until recorded audio arrives. */
+/** Small synthesized sound set. */
 export class Sound {
   private ctx?: AudioContext;
   private master?: GainNode;
@@ -22,10 +22,18 @@ export class Sound {
     void this.ctx.resume();
   }
 
+  /** A laser bolt: two detuned tones sweeping down, with a short hiss on top. */
   shot(weapon: WeaponId, distanceGain = 1) {
-    const heavy = weapon === "rifle";
-    this.noiseBurst({ duration: heavy ? 0.16 : 0.12, filter: heavy ? 1800 : 2600, gain: 0.55 * distanceGain });
-    this.tone({ from: heavy ? 140 : 200, to: 50, duration: 0.12, gain: 0.5 * distanceGain, type: "sine" });
+    const rifle = weapon === "rifle";
+    const duration = rifle ? 0.11 : 0.17;
+    this.tone({ from: rifle ? 1500 : 2200, to: rifle ? 240 : 420, duration, gain: 0.26 * distanceGain, type: "sawtooth", lowpass: 5200 });
+    this.tone({ from: rifle ? 760 : 1120, to: rifle ? 120 : 210, duration, gain: 0.2 * distanceGain, type: "square", lowpass: 2800 });
+    this.noiseBurst({ duration: 0.05, filter: 7000, gain: 0.1 * distanceGain });
+  }
+
+  /** The trigger with no energy left. */
+  empty() {
+    this.tone({ from: 190, to: 130, duration: 0.09, gain: 0.16, type: "square", lowpass: 700 });
   }
 
   hit(head: boolean) {
@@ -45,9 +53,25 @@ export class Sound {
     this.tone({ from: 440, to: 110, duration: 0.9, gain: 0.35, type: "triangle", lowpass: 1200 });
   }
 
+  /** The spent energy capsule powers down and drops out. */
   reload() {
-    this.tone({ from: 300, to: 260, duration: 0.05, gain: 0.15, type: "square", lowpass: 1500 });
-    setTimeout(() => this.tone({ from: 420, to: 380, duration: 0.05, gain: 0.15, type: "square", lowpass: 1500 }), 140);
+    this.tone({ from: 720, to: 170, duration: 0.22, gain: 0.16, type: "triangle", lowpass: 2000 });
+    this.tone({ from: 260, to: 220, duration: 0.05, gain: 0.14, type: "square", lowpass: 1400, delay: 0.24 });
+  }
+
+  /** The fresh capsule clicks in and charges up. */
+  reloadDone() {
+    this.tone({ from: 420, to: 380, duration: 0.05, gain: 0.15, type: "square", lowpass: 1500 });
+    this.tone({ from: 240, to: 1100, duration: 0.22, gain: 0.14, type: "sine", delay: 0.04 });
+  }
+
+  pickup(health: boolean) {
+    this.tone({ from: health ? 520 : 660, to: health ? 660 : 990, duration: 0.1, gain: 0.2, type: "sine" });
+    this.tone({ from: health ? 780 : 990, to: health ? 1040 : 1480, duration: 0.14, gain: 0.2, type: "sine", delay: 0.09 });
+  }
+
+  countdownTick() {
+    this.tone({ from: 700, to: 690, duration: 0.14, gain: 0.22, type: "sine" });
   }
 
   waveStart() {
@@ -69,9 +93,9 @@ export class Sound {
     src.start(t, Math.random() * 0.5, o.duration);
   }
 
-  private tone(o: { from: number; to: number; duration: number; gain: number; type: OscillatorType; lowpass?: number }) {
+  private tone(o: { from: number; to: number; duration: number; gain: number; type: OscillatorType; lowpass?: number; delay?: number }) {
     if (!this.ctx || !this.master) return;
-    const t = this.ctx.currentTime;
+    const t = this.ctx.currentTime + (o.delay ?? 0);
     const osc = this.ctx.createOscillator();
     osc.type = o.type;
     osc.frequency.setValueAtTime(o.from, t);

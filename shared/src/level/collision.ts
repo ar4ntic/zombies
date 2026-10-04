@@ -1,4 +1,4 @@
-import { PROP_BOUNDS } from "./props.ts";
+import { PROP_BOUNDS, PROP_PARTS } from "./props.ts";
 import type { Box, LevelDef, Vec2 } from "./types.ts";
 
 export function buildColliders(level: LevelDef): Box[] {
@@ -7,21 +7,22 @@ export function buildColliders(level: LevelDef): Box[] {
     boxes.push({ x: s.x, z: s.z, hx: s.width / 2, hz: s.depth / 2, rot: s.rotation ?? 0, height: s.height });
   }
   for (const p of level.props) {
-    const b = PROP_BOUNDS[p.model];
-    if (!b) continue;
+    const bounds = PROP_BOUNDS[p.model];
     const rot = p.rotation ?? 0;
-    const cx = (b.minX + b.maxX) / 2;
-    const cz = (b.minZ + b.maxZ) / 2;
     const cos = Math.cos(rot);
     const sin = Math.sin(rot);
-    boxes.push({
-      x: p.x + cx * cos + cz * sin,
-      z: p.z - cx * sin + cz * cos,
-      hx: (b.maxX - b.minX) / 2,
-      hz: (b.maxZ - b.minZ) / 2,
-      rot,
-      height: b.height,
-    });
+    for (const b of PROP_PARTS[p.model] ?? (bounds ? [bounds] : [])) {
+      const cx = (b.minX + b.maxX) / 2;
+      const cz = (b.minZ + b.maxZ) / 2;
+      boxes.push({
+        x: p.x + cx * cos + cz * sin,
+        z: p.z - cx * sin + cz * cos,
+        hx: (b.maxX - b.minX) / 2,
+        hz: (b.maxZ - b.minZ) / 2,
+        rot,
+        height: b.height,
+      });
+    }
   }
   for (const l of level.lamps) {
     const b = PROP_BOUNDS.street_lamp_01!;
@@ -45,10 +46,14 @@ function toWorldDir(box: Box, lx: number, lz: number): [number, number] {
   return [lx * cos + lz * sin, -lx * sin + lz * cos];
 }
 
-/** Pushes a circle out of every box it overlaps. Mutates `pos`. Returns true on contact. */
-export function resolveCircle(pos: Vec2, radius: number, boxes: Box[]): boolean {
+/**
+ * Pushes a circle out of every box it overlaps. Mutates `pos`. Returns true on contact.
+ * Boxes no taller than `above` are skipped, so something standing at that height can move over them.
+ */
+export function resolveCircle(pos: Vec2, radius: number, boxes: Box[], above = -Infinity): boolean {
   let hit = false;
   for (const box of boxes) {
+    if (box.height <= above) continue;
     const [lx, lz] = toLocal(box, pos.x, pos.z);
     if (Math.abs(lx) > box.hx + radius || Math.abs(lz) > box.hz + radius) continue;
     const cx = Math.max(-box.hx, Math.min(box.hx, lx));
@@ -87,6 +92,15 @@ export function resolveCircle(pos: Vec2, radius: number, boxes: Box[]): boolean 
 export function pointInBox(box: Box, x: number, z: number, inflate = 0): boolean {
   const [lx, lz] = toLocal(box, x, z);
   return Math.abs(lx) <= box.hx + inflate && Math.abs(lz) <= box.hz + inflate;
+}
+
+/** Top of the highest box under a point that is no higher than `maxHeight`, or 0 for the ground. */
+export function surfaceHeight(x: number, z: number, boxes: Box[], maxHeight = Infinity, inflate = 0): number {
+  let top = 0;
+  for (const box of boxes) {
+    if (box.height > top && box.height <= maxHeight && pointInBox(box, x, z, inflate)) top = box.height;
+  }
+  return top;
 }
 
 /**

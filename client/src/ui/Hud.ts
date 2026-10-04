@@ -18,9 +18,16 @@ import { settingsControls } from "./Settings.ts";
 const HURT_FADE = 1.6;
 
 const URGENT_SECONDS = 30;
+/** Shots a player needs before their accuracy can win the award. */
+const SHARPSHOOTER_SHOTS = 20;
 
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+/** Share of a player's shots that hit a zombie. */
+function accuracy(p: PlayerState): number {
+  return p.shots > 0 ? p.hits / p.shots : 0;
 }
 
 /** Player with the highest key, or undefined if nobody qualifies. */
@@ -98,7 +105,7 @@ export class Hud {
         <div class="prompt-text" data-ref="promptText"></div>
       </div>
 
-      <div class="countdown" data-ref="countdown"></div>
+      <div class="countdown" data-ref="countdown" hidden><span class="label" data-ref="countdownLabel"></span><span data-ref="countdownNumber"></span></div>
       <div class="banner" data-ref="banner"><h2 data-ref="bannerTitle"></h2><p data-ref="bannerSub"></p></div>
       <div class="notice" data-ref="notice"></div>
       <div class="info" data-ref="info"></div>
@@ -124,10 +131,10 @@ export class Hud {
           <span><kbd>Mouse</kbd> look &amp; aim</span>
           <span><kbd>Left click</kbd> shoot</span>
           <span><kbd>Right click</kbd> aim down sights</span>
-          <span><kbd>R</kbd> reload</span>
+          <span><kbd>R</kbd> swap energy capsule</span>
           <span><kbd>1</kbd> <kbd>2</kbd> / <kbd>Wheel</kbd> switch weapon</span>
           <span><kbd>Shift</kbd> sprint</span>
-          <span><kbd>Space</kbd> jump</span>
+          <span><kbd>Space</kbd> jump, also onto crates and cars</span>
           <span><kbd>C</kbd> crouch</span>
         </div>
         <p class="rules" data-ref="rules"></p>
@@ -267,7 +274,7 @@ export class Hud {
     if (!state) return;
     this.$.end!.hidden = false;
     this.$.endTitle!.textContent = "Time's up!";
-    this.$.endSettings!.textContent = `${settingsLabel(state.difficulty, state.duration)} · 2 stars at ${state.scoreStar.toLocaleString()}`;
+    this.$.endSettings!.textContent = `${settingsLabel(state.difficulty, state.duration, state.energy)} · 2 stars at ${state.scoreStar.toLocaleString()}`;
     this.$.stars!.innerHTML = [0, 1, 2].map((i) => `<span class="star ${i < state.stars ? "on" : ""}" style="animation-delay:${0.3 + i * 0.25}s">★</span>`).join("");
     this.$.endScore!.textContent = `${state.solo ? "Score" : "Team score"} ${state.teamScore.toLocaleString()}`;
 
@@ -280,14 +287,16 @@ export class Hud {
     if (players.length > 1 || players[0]?.score) give(players[0], "MVP");
     give(best(players, (p) => p.headshots, (p) => p.headshots > 0), "Headshot King");
     if (players.length > 1) give(best(players, (p) => -p.deaths), "Survivor");
+    if (players.length > 1) give(best(players, accuracy, (p) => p.shots >= SHARPSHOOTER_SHOTS), "Sharpshooter");
 
     this.$.stats!.innerHTML =
-      `<tr><th>#</th><th>Player</th><th>Score</th><th>Kills</th><th>Headshots</th><th>Deaths</th><th></th></tr>` +
+      `<tr><th>#</th><th>Player</th><th>Score</th><th>Kills</th><th>Headshots</th><th>Accuracy</th><th>Deaths</th><th></th></tr>` +
       rows
         .map(
           ([id, p], i) =>
             `<tr class="${id === this.game.network.sessionId ? "me" : ""}"><td>${i + 1}</td><td>${escapeHtml(p.name)}</td>` +
-            `<td>${p.score.toLocaleString()}</td><td>${p.kills}</td><td>${p.headshots}</td><td>${p.deaths}</td>` +
+            `<td>${p.score.toLocaleString()}</td><td>${p.kills}</td><td>${p.headshots}</td>` +
+            `<td title="${p.hits} of ${p.shots} shots hit">${p.shots > 0 ? `${Math.round(accuracy(p) * 100)}%` : "–"}</td><td>${p.deaths}</td>` +
             `<td class="awards">${(awards.get(p) ?? []).map((a) => `<span class="award">${a}</span>`).join("")}</td></tr>`,
         )
         .join("");
@@ -330,7 +339,7 @@ export class Hud {
     const minutes = state.duration / 60;
     const ranked = isRoundMinutes(minutes);
     this.board.el.hidden = !ranked;
-    if (ranked) void this.board.show(state.difficulty, minutes, this.game.me?.name);
+    if (ranked) void this.board.show(state.difficulty, minutes, state.energy, this.game.me?.name);
   }
 
   update(dt: number) {
@@ -339,7 +348,7 @@ export class Hud {
     const me = game.me;
     if (!state || !me) return;
 
-    this.updateTimer(state.phase, state.wave, state.timer, state.zombies.size);
+    this.updateTimer(state.phase, state.wave, state.timer, state.zombiesLeft);
     this.$.knockout!.classList.toggle("show", me.dead && !game.finished && game.input.locked);
     if (me.dead) this.set("respawn", `${Math.max(1, Math.ceil(me.respawnIn))}`);
     this.$.protection!.classList.toggle("show", me.protection > 0 && !me.dead);
@@ -365,22 +374,27 @@ export class Hud {
       this.setHidden(this.lobby.el, !inLobby);
       if (inLobby) this.lobby.update();
     }
-    const countdown = state.phase === "countdown" && !state.solo ? Math.ceil(state.timer) : 0;
-    this.set("countdown", countdown > 0 && game.input.locked ? String(countdown) : "");
+    const countdown = state.phase === "countdown" ? Math.ceil(state.timer) : 0;
+    const wave = game.waveCountdown;
+    this.setHidden(this.$.countdown!, !wave || !game.input.locked);
+    if (wave) {
+      this.set("countdownLabel", `Wave ${wave.wave}`);
+      this.set("countdownNumber", String(wave.seconds));
+    }
 
     if (game.input.locked && !game.lookTesting) this.started = true;
     if (inLobby) this.started = false;
     const showPause = (!game.input.locked && !game.finished && !inLobby) || this.lost;
     if (showPause && this.$.pause!.hidden) this.confirmLeave(false);
     this.setHidden(this.$.pause!, !showPause);
-    const settings = settingsLabel(state.difficulty, state.duration);
+    const settings = settingsLabel(state.difficulty, state.duration, state.energy);
     if (showPause && !this.lost) {
       const title = countdown > 0 ? `Starting in ${countdown}...` : "Ready?";
       this.set("pauseTitle", this.started ? (state.solo ? "Paused" : "Game menu") : title);
       this.set("resume", this.started ? "Resume" : "Play");
       this.set("pauseHint", state.solo ? "" : "The game keeps running for your team while you are away!");
       this.set("pauseSettings", settings);
-      this.set("rules", `Survive ${formatRoundLength(state.duration)}! Every knockout costs ${DEATH_PENALTY} points.`);
+      this.set("rules", `Clear as many waves as you can in ${formatRoundLength(state.duration)}! Every knockout costs ${DEATH_PENALTY} points.`);
     }
 
     const parts = [settings, `${game.fps} fps`];
@@ -388,15 +402,17 @@ export class Hud {
     this.set("info", parts.join("  ·  "));
   }
 
-  private updateTimer(phase: string, wave: number, timer: number, alive: number) {
+  private updateTimer(phase: string, wave: number, timer: number, left: number) {
     const el = this.$.timer!;
     if (phase === "countdown") {
       this.set("timer", `Get ready ${Math.ceil(timer)}`);
-      this.set("waveSub", "Survive until the timer runs out");
+      this.set("waveSub", "Clear every wave before the time runs out");
     } else {
       const seconds = Math.ceil(timer);
       this.set("timer", `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`);
-      this.set("waveSub", phase === "ended" ? "Round over" : `Wave ${wave} · ${alive} zombie${alive === 1 ? "" : "s"}`);
+      const next = this.game.waveCountdown;
+      const playing = next ? `Wave ${wave} cleared · next in ${next.seconds}` : `Wave ${wave} · ${left} zombie${left === 1 ? "" : "s"} left`;
+      this.set("waveSub", phase === "ended" ? "Round over" : playing);
     }
     el.classList.toggle("urgent", phase === "playing" && timer <= URGENT_SECONDS);
   }
@@ -443,7 +459,8 @@ export class Hud {
 
   private updatePrompt(me: PlayerState) {
     const { weapons } = this.game;
-    const text = !me.dead && weapons.magazine === 0 && !weapons.reloading ? "Press <kbd>R</kbd> to reload" : "";
+    const empty = !me.dead && weapons.magazine === 0 && !weapons.reloading;
+    const text = !empty ? "" : weapons.outOfEnergy ? "Out of energy – find a capsule or press <kbd>1</kbd>" : "Press <kbd>R</kbd> to swap the capsule";
     this.set("promptText", text, true);
     this.$.prompt!.classList.toggle("show", text !== "");
   }

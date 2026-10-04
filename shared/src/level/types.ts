@@ -58,7 +58,7 @@ export interface LevelDef {
   structures: StructurePlacement[];
   props: PropPlacement[];
   lamps: LampPlacement[];
-  /** Escalating spawn schedule; after the last wave it repeats with growing intensity. */
+  /** Escalating waves, each started once the previous one is cleared; after the last one it repeats with growing intensity. */
   waves: WaveDef[];
   /** Team score per minute of round needed for the second star at Normal. */
   scoreStarPerMinute: number;

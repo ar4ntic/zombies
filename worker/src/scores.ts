@@ -1,10 +1,19 @@
-import { PARKING_LOT, isDifficulty, isRoundMinutes, type LeaderboardEntry, type PersonalBestEvent } from "@zombies/shared";
+import {
+  DEFAULT_ENERGY_MODE,
+  PARKING_LOT,
+  isDifficulty,
+  isEnergyMode,
+  isRoundMinutes,
+  type LeaderboardEntry,
+  type PersonalBestEvent,
+} from "@zombies/shared";
 
 export interface Category {
   level: string;
   difficulty: string;
   /** 0 marks rounds with a non-standard test length, which never show up on leaderboards. */
   durationMinutes: number;
+  energy: string;
 }
 
 export interface PlayerResult {
@@ -14,6 +23,8 @@ export interface PlayerResult {
   kills: number;
   headshots: number;
   deaths: number;
+  shots: number;
+  hits: number;
 }
 
 export interface RoundResult extends Category {
@@ -44,8 +55,9 @@ export function parseCategory(params: URLSearchParams): Category | null {
   const level = params.get("level") || PARKING_LOT.id;
   const difficulty = params.get("difficulty");
   const durationMinutes = Number(params.get("minutes"));
-  if (!KEY.test(level) || !isDifficulty(difficulty) || !isRoundMinutes(durationMinutes)) return null;
-  return { level, difficulty, durationMinutes };
+  const energy = params.get("energy") || DEFAULT_ENERGY_MODE;
+  if (!KEY.test(level) || !isDifficulty(difficulty) || !isRoundMinutes(durationMinutes) || !isEnergyMode(energy)) return null;
+  return { level, difficulty, durationMinutes, energy };
 }
 
 export function parseLimit(params: URLSearchParams): number {
@@ -53,7 +65,7 @@ export function parseLimit(params: URLSearchParams): number {
 }
 
 /**
- * Best score per player for one level / difficulty / round length. A player is a browser id plus a nickname,
+ * Best score per player for one level / difficulty / round length / energy mode. A player is a browser id plus a nickname,
  * so people sharing one browser under different nicknames each keep their own entry.
  */
 export async function leaderboard(db: D1Database, category: Category, limit: number, me?: { playerId: string; nickname?: string }): Promise<LeaderboardEntry[]> {
@@ -66,13 +78,13 @@ export async function leaderboard(db: D1Database, category: Category, limit: num
                   r.ended_at AS endedAt,
                   ROW_NUMBER() OVER (PARTITION BY rp.player_id, lower(rp.nickname) ORDER BY rp.score DESC, r.ended_at ASC) AS n
              FROM round_players rp JOIN rounds r ON r.id = rp.round_id
-            WHERE r.level = ?1 AND r.difficulty = ?2 AND r.duration_minutes = ?3
+            WHERE r.level = ?1 AND r.difficulty = ?2 AND r.duration_minutes = ?3 AND r.energy = ?7
          )
         WHERE n = 1
         ORDER BY score DESC, endedAt ASC
         LIMIT ?4`,
     )
-    .bind(category.level, category.difficulty, category.durationMinutes, limit, me?.playerId ?? null, me?.nickname ?? null)
+    .bind(category.level, category.difficulty, category.durationMinutes, limit, me?.playerId ?? null, me?.nickname ?? null, category.energy)
     .all<Omit<LeaderboardEntry, "rank" | "me"> & { me: number | null }>();
   return results.map(({ me: mine, ...row }, i) => ({ rank: i + 1, ...row, ...(mine ? { me: true } : {}) }));
 }
@@ -86,10 +98,10 @@ export async function recordRound(db: D1Database, round: RoundResult): Promise<M
          FROM round_players rp
          JOIN rounds r ON r.id = rp.round_id
          JOIN json_each(?4) p ON rp.player_id = json_extract(p.value, '$.id') AND lower(rp.nickname) = lower(json_extract(p.value, '$.name'))
-        WHERE r.level = ?1 AND r.difficulty = ?2 AND r.duration_minutes = ?3
+        WHERE r.level = ?1 AND r.difficulty = ?2 AND r.duration_minutes = ?3 AND r.energy = ?5
         GROUP BY rp.player_id`,
     )
-    .bind(round.level, round.difficulty, round.durationMinutes, JSON.stringify(identities))
+    .bind(round.level, round.difficulty, round.durationMinutes, JSON.stringify(identities), round.energy)
     .all<{ playerId: string; best: number }>();
   const bestBefore = new Map(previous.results.map((row) => [row.playerId, row.best]));
 
@@ -97,8 +109,8 @@ export async function recordRound(db: D1Database, round: RoundResult): Promise<M
   await db.batch([
     db
       .prepare(
-        `INSERT INTO rounds (id, session_code, level, difficulty, duration_minutes, solo, team_score, stars, ended_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+        `INSERT INTO rounds (id, session_code, level, difficulty, duration_minutes, solo, team_score, stars, ended_at, energy)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
       )
       .bind(
         roundId,
@@ -110,14 +122,15 @@ export async function recordRound(db: D1Database, round: RoundResult): Promise<M
         round.teamScore,
         round.stars,
         new Date().toISOString(),
+        round.energy,
       ),
     ...round.players.map((p) =>
       db
         .prepare(
-          `INSERT INTO round_players (round_id, player_id, nickname, score, kills, headshots, deaths)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+          `INSERT INTO round_players (round_id, player_id, nickname, score, kills, headshots, deaths, shots, hits)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
         )
-        .bind(roundId, p.playerId, p.nickname, p.score, p.kills, p.headshots, p.deaths),
+        .bind(roundId, p.playerId, p.nickname, p.score, p.kills, p.headshots, p.deaths, p.shots, p.hits),
     ),
   ]);
 

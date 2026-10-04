@@ -1,8 +1,12 @@
 import { PerspectiveCamera, Timer, Vector3 } from "three";
 import {
   PARKING_LOT,
+  PICKUP_RADIUS,
+  STAND_TOLERANCE,
   TICK_MS,
+  WAVE_COUNTDOWN_SECONDS,
   buildColliders,
+  type EnergyMode,
   type GameState,
   type PlayerState,
   type SettingsMessage,
@@ -12,14 +16,15 @@ import { Network, type NetworkEvents } from "../net/Network.ts";
 import { Hud } from "../ui/Hud.ts";
 import { PerfOverlay } from "../ui/PerfOverlay.ts";
 import type { GameSettings } from "../ui/Menu.ts";
+import { Bolts } from "./fx/Bolts.ts";
 import { Particles } from "./fx/Particles.ts";
 import { Sound } from "./fx/Sound.ts";
-import { Tracers } from "./fx/Tracers.ts";
 import { Input } from "./Input.ts";
+import { Pickups } from "./Pickups.ts";
 import { PlayerController } from "./PlayerController.ts";
 import { RemotePlayers } from "./RemotePlayers.ts";
 import { ViewModel } from "./weapons/ViewModel.ts";
-import { TRACER_COLORS, WeaponSystem } from "./weapons/WeaponSystem.ts";
+import { BOLTS, WeaponSystem } from "./weapons/WeaponSystem.ts";
 import { World } from "./World.ts";
 import { ZombieManager } from "./zombies/ZombieManager.ts";
 import { preloadCast } from "./zombies/cast.ts";
@@ -28,6 +33,16 @@ export type SessionChoice = { mode: "solo" } | { mode: "create" } | { mode: "joi
 
 const LEVEL = PARKING_LOT;
 const RESULTS_DELAY_MS = 4500;
+/** Seconds between requests for the capsule the player is standing on, until the server hands it over. */
+const COLLECT_INTERVAL = 0.2;
+/** Height above a player's feet their gun is held at, where other players' bolts and knockback come from. */
+const GUN_HEIGHT = 1.5;
+
+/** The announced wave and the whole seconds left until it starts. */
+export interface WaveCountdown {
+  wave: number;
+  seconds: number;
+}
 
 export class Game {
   readonly input: Input;
@@ -41,14 +56,17 @@ export class Game {
   private readonly renderer: Renderer;
   private readonly remotes: RemotePlayers;
   private readonly zombies: ZombieManager;
+  private readonly pickups: Pickups;
   private readonly particles: Particles;
-  private readonly tracers: Tracers;
+  private readonly bolts: Bolts;
   private readonly viewModel: ViewModel;
   private readonly timer = new Timer();
   private hud?: Hud;
   private spawned = false;
   private lastPhase = "";
   private lastWave = 0;
+  private lastCountdown = 0;
+  private collectTimer = 0;
   private lastYaw = 0;
   private lastPitch = 0;
   private wasDead = false;
@@ -79,8 +97,9 @@ export class Game {
     this.input = new Input(canvas);
     this.player = new PlayerController(this.camera, this.input, this.colliders, LEVEL.halfSize);
     this.remotes = new RemotePlayers(scene);
+    this.pickups = new Pickups(scene);
     this.particles = new Particles(scene);
-    this.tracers = new Tracers(scene);
+    this.bolts = new Bolts(scene);
     this.zombies = new ZombieManager(scene, this.camera, this.particles);
     this.renderer.onWorldSettings = (settings) => {
       this.world.applyGraphics(settings);
@@ -96,7 +115,7 @@ export class Game {
       zombies: this.zombies,
       colliders: this.colliders,
       particles: this.particles,
-      tracers: this.tracers,
+      bolts: this.bolts,
       sound: this.sound,
       onShoot: (msg) => this.network.sendShoot(msg),
       onSwitch: (weapon) => this.network.sendWeapon(weapon),
@@ -123,6 +142,15 @@ export class Game {
 
   get inLobby(): boolean {
     return this.state?.phase === "lobby";
+  }
+
+  /** Set during the announced pause before a wave, including the last seconds before the first one. */
+  get waveCountdown(): WaveCountdown | undefined {
+    const state = this.state;
+    if (!state) return undefined;
+    if (state.phase === "playing" && state.waveIn > 0) return { wave: state.wave + 1, seconds: Math.ceil(state.waveIn) };
+    if (state.phase === "countdown" && state.timer > 0 && state.timer <= WAVE_COUNTDOWN_SECONDS) return { wave: 1, seconds: Math.ceil(state.timer) };
+    return undefined;
   }
 
   get aimProgress(): number {
@@ -197,16 +225,19 @@ export class Game {
       zombieAdded: (id, zombie) => this.zombies.add(id, zombie),
       zombieChanged: (id) => this.zombies.changed(id),
       zombieRemoved: (id) => this.zombies.remove(id),
+      pickupAdded: (id, pickup) => this.pickups.add(id, pickup),
+      pickupRemoved: (id) => this.pickups.remove(id),
       shot: (e) => {
         const from = new Vector3(...e.origin);
-        this.tracers.spawn(from, new Vector3(...e.end), TRACER_COLORS[e.weapon], 0.012);
+        const bolt = BOLTS[e.weapon];
+        this.bolts.spawn(from, new Vector3(...e.end), bolt.color, bolt.width * 1.5, bolt.length);
         const distance = from.distanceTo(this.camera.position);
         this.sound.shot(e.weapon, Math.max(0.08, 1 - distance / 50) * 0.6);
       },
       zombieHit: (e) => {
         if (e.by === this.network.sessionId) return;
         const shooter = this.state?.players?.get(e.by);
-        if (shooter) this.zombies.hit(e.zombie, new Vector3(shooter.x, 1.5, shooter.z), e.head);
+        if (shooter) this.zombies.hit(e.zombie, new Vector3(shooter.x, shooter.y + GUN_HEIGHT, shooter.z), e.head);
       },
       kill: (e) => {
         if (e.by !== this.network.sessionId) return;
@@ -219,13 +250,17 @@ export class Game {
         const bearing = Math.atan2(e.fromX - this.player.position.x, e.fromZ - this.player.position.z);
         this.hud?.damage(-(bearing - this.player.yaw - Math.PI), e.damage);
       },
-      ammo: (e) => {
-        this.weapons.addReserve(e.weapon, e.amount);
-        this.hud?.notice(`+${e.amount} rifle ammo`);
+      pickup: (e) => {
+        if (e.player !== this.network.sessionId) return;
+        const health = e.kind === "health";
+        if (!health) this.weapons.addReserve("rifle", e.amount);
+        this.sound.pickup(health);
+        this.hud?.notice(health ? `+${e.amount} health` : `+${e.amount} rifle energy`);
       },
       personalBest: (e) => this.hud?.personalBest(e),
       disconnected: () => this.hud?.disconnected(),
     };
+    this.pickups.clear();
     if (choice.mode === "join") {
       await this.network.joinSession(choice.code, { name }, events);
     } else {
@@ -255,9 +290,11 @@ export class Game {
     this.hud = undefined;
     this.zombies.clear();
     this.remotes.clear();
+    this.pickups.clear();
     this.spawned = false;
     this.lastPhase = "";
     this.lastWave = 0;
+    this.lastCountdown = 0;
     this.wasDead = false;
     this.player.dead = false;
     this.onLeave?.();
@@ -297,14 +334,17 @@ export class Game {
       lookDX: -lookDX * 20,
       lookDY: -lookDY * 20,
       reload: this.weapons.reloadProgress,
+      charge: this.weapons.charge,
       dead: this.player.dead,
     });
 
     if (!paused) this.zombies.update(dt);
     this.remotes.update(dt, this.elapsed);
+    this.pickups.update(dt, this.elapsed);
     this.particles.update(dt);
-    this.tracers.update(dt);
+    this.bolts.update(dt);
     this.sendPosition(dt);
+    if (active) this.collectEnergy(dt);
     this.hud?.update(dt);
     this.renderer.render(dt, interval, this.cpuMs);
     this.input.endFrame();
@@ -319,7 +359,7 @@ export class Game {
     if (!this.spawned || restarted) {
       this.spawned = true;
       this.player.spawn(me.x, me.z, Math.atan2(me.x, me.z));
-      this.weapons.reset();
+      this.weapons.reset(state.energy as EnergyMode);
       clearTimeout(this.resultsTimer);
       this.hud?.hideEnd();
     } else if (this.wasDead && !me.dead) {
@@ -330,10 +370,18 @@ export class Game {
     this.wasDead = me.dead;
     this.player.dead = me.dead;
 
+    const countdown = this.waveCountdown?.seconds ?? 0;
+    if (countdown !== this.lastCountdown) {
+      if (countdown > 0) this.sound.countdownTick();
+      this.lastCountdown = countdown;
+    }
+
     if (state.phase !== this.lastPhase || state.wave !== this.lastWave) {
+      // The host may change the energy mode in the lobby, after the weapons were set up.
+      if (state.phase === "countdown" && this.lastPhase === "lobby") this.weapons.reset(state.energy as EnergyMode);
       if (state.phase === "playing" && state.wave > 0) {
         this.sound.waveStart();
-        this.hud?.banner(`Wave ${state.wave}`, state.wave === 1 ? "Survive until the timer runs out!" : "Here they come!");
+        this.hud?.banner(`Wave ${state.wave}`, state.wave === 1 ? "Clear every wave before the time runs out!" : "Here they come!");
       } else if (state.phase === "ended") {
         this.hud?.banner("Time's up!", "Dance party!");
         this.resultsTimer = setTimeout(() => {
@@ -352,6 +400,17 @@ export class Game {
     this.wasLocked = locked;
     this.sound.unlock();
     if (this.solo && !this.finished) this.network.sendPause(!locked || this.lookTesting);
+  }
+
+  /** Asks for the energy capsules underfoot while the rifle has room for more. */
+  private collectEnergy(dt: number) {
+    this.collectTimer -= dt;
+    const { position, dead } = this.player;
+    if (this.collectTimer > 0 || dead || position.y > STAND_TOLERANCE || !this.weapons.canTake("rifle")) return;
+    const near = this.pickups.energyNear(position.x, position.z, PICKUP_RADIUS);
+    if (near.length === 0) return;
+    this.collectTimer = COLLECT_INTERVAL;
+    this.network.sendCollect(near[0]!);
   }
 
   private sendPosition(dt: number) {

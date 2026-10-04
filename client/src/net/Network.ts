@@ -3,13 +3,14 @@ import {
   GameState,
   RECONNECT_GRACE_SECONDS,
   StateFrame,
-  type AmmoRefillEvent,
   type ClientMessages,
   type Envelope,
   type JoinOptions,
   type KillEvent,
   type MoveMessage,
   type PersonalBestEvent,
+  type PickupEvent,
+  type PickupState,
   type PlayerHurtEvent,
   type PlayerState,
   type ServerEvents,
@@ -36,11 +37,13 @@ export interface NetworkEvents {
   zombieAdded(id: string, zombie: ZombieState): void;
   zombieChanged(id: string): void;
   zombieRemoved(id: string): void;
+  pickupAdded(id: string, pickup: PickupState): void;
+  pickupRemoved(id: string): void;
   shot(e: ShotEvent): void;
   zombieHit(e: ZombieHitEvent): void;
   kill(e: KillEvent): void;
   playerHurt(e: PlayerHurtEvent): void;
-  ammo(e: AmmoRefillEvent): void;
+  pickup(e: PickupEvent): void;
   personalBest(e: PersonalBestEvent): void;
   disconnected(): void;
 }
@@ -92,8 +95,12 @@ export class Network {
       callbacks.onChange(zombie, () => events.zombieChanged(id));
     });
     callbacks.onRemove("zombies", (_zombie, id) => events.zombieRemoved(id));
+    callbacks.onAdd("pickups", (pickup, id) => events.pickupAdded(id, pickup));
+    callbacks.onRemove("pickups", (_pickup, id) => events.pickupRemoved(id));
     this.connection = connection;
-    await this.connect(connection, new URLSearchParams({ name: options.name, playerId: playerId() }));
+    const params = new URLSearchParams({ name: options.name, playerId: playerId() });
+    if (options.skin) params.set("skin", options.skin);
+    await this.connect(connection, params);
   }
 
   /** Resolves once the full state has arrived; rejects if the socket closes before that. */
@@ -152,7 +159,7 @@ export class Network {
       case "zombieHit":
       case "kill":
       case "playerHurt":
-      case "ammo":
+      case "pickup":
       case "personalBest":
         events[type](data);
         break;
@@ -185,6 +192,14 @@ export class Network {
 
   sendSettings(settings: SettingsMessage) {
     this.send("settings", settings);
+  }
+
+  sendCollect(id: string) {
+    this.send("collect", { id });
+  }
+
+  sendSkin(skin: string) {
+    this.send("skin", { skin });
   }
 
   sendStart() {

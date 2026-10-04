@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Generates rigged, animated zombie characters with the Meshy API.
+// Generates rigged, animated zombie characters and player skins with the Meshy API.
 //
-//   node scripts/meshy/generate.mjs <id...|all> [--until=preview|refine|rig|animate|export]
+//   node scripts/meshy/generate.mjs <id...|zombies|players|all> [--until=preview|refine|rig|animate|export]
 //
 // Progress (task ids) is stored in scripts/meshy/state/<id>.json so re-running resumes
 // without paying for finished steps again, and separate characters can run in parallel.
@@ -13,7 +13,8 @@ import { fileURLToPath } from "node:url";
 import { NodeIO } from "@gltf-transform/core";
 import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
 import { MeshoptDecoder, MeshoptEncoder } from "meshoptimizer";
-import { ANIMATIONS, CAST } from "./cast.mjs";
+import sharp from "sharp";
+import { ANIMATIONS, CAST, PLAYER_ANIMATIONS, PLAYERS } from "./cast.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const stateDir = join(root, "scripts/meshy/state");
@@ -22,6 +23,14 @@ const outDir = join(root, "client/public/assets/characters");
 const gltfTransform = join(root, "node_modules/.bin/gltf-transform");
 const API = "https://api.meshy.ai/openapi";
 const STEPS = ["preview", "refine", "rig", "animate", "export"];
+const THUMBNAIL_SIZE = 256;
+
+// Player skins are seen from further away than the zombies in the player's face, and ten of them have to load.
+const GROUPS = {
+  zombies: CAST.map((c) => ({ ...c, animations: ANIMATIONS, textureSize: 2048, thumbnail: false })),
+  players: PLAYERS.map((c) => ({ ...c, animations: PLAYER_ANIMATIONS, textureSize: 1024, thumbnail: true })),
+};
+const CHARACTERS = [...GROUPS.zombies, ...GROUPS.players];
 
 const apiKey = process.env.MESHY_API_KEY ?? readEnvKey();
 if (!apiKey) throw new Error("MESHY_API_KEY missing (add it to .env)");
@@ -30,8 +39,10 @@ const args = process.argv.slice(2);
 const until = args.find((a) => a.startsWith("--until="))?.split("=")[1] ?? "export";
 if (!STEPS.includes(until)) throw new Error(`--until must be one of ${STEPS.join(", ")}`);
 const ids = args.filter((a) => !a.startsWith("--"));
-const targets = ids.includes("all") ? CAST : CAST.filter((c) => ids.includes(c.id));
-if (targets.length === 0) throw new Error(`Pick characters: all | ${CAST.map((c) => c.id).join(" | ")}`);
+const targets = ids.includes("all")
+  ? CHARACTERS
+  : CHARACTERS.filter((c) => ids.includes(c.id) || Object.entries(GROUPS).some(([group, cast]) => ids.includes(group) && cast.includes(c)));
+if (targets.length === 0) throw new Error(`Pick characters: all | zombies | players | ${CHARACTERS.map((c) => c.id).join(" | ")}`);
 
 const state = {};
 for (const char of targets) {
@@ -97,7 +108,7 @@ const reached = (name) => STEPS.indexOf(name) <= STEPS.indexOf(until);
 
 /**
  * Pins the hip bone's horizontal position to its rest pose in every clip, so the
- * game controls where zombies go. Vertical motion (bobbing, falling) is kept.
+ * game controls where characters go. Vertical motion (bobbing, falling) is kept.
  */
 async function removeRootMotion(src, dest) {
   await MeshoptDecoder.ready;
@@ -181,7 +192,7 @@ for (const char of targets) {
     () =>
       api("POST", "/v1/animations", {
         rig_task_id: state[char.id].rig,
-        action_ids: ANIMATIONS.map((a) => a.actionId),
+        action_ids: char.animations.map((a) => a.actionId),
       }),
     (id) => `/v1/animations/${id}`,
   );
@@ -201,7 +212,7 @@ for (const char of targets) {
       dest,
       "--compress", "meshopt",
       "--texture-compress", "webp",
-      "--texture-size", "2048",
+      "--texture-size", String(char.textureSize),
       "--simplify", "false",
       "--join", "false",
       "--instance", "false",
@@ -209,4 +220,10 @@ for (const char of targets) {
     { stdio: ["ignore", "ignore", "inherit"] },
   );
   console.log(`  exported ${dest.replace(root + "/", "")}`);
+  if (char.thumbnail) {
+    const thumb = join(outDir, "thumbs", `${char.id}.webp`);
+    mkdirSync(dirname(thumb), { recursive: true });
+    await sharp(join(dir, "refine.png")).resize(THUMBNAIL_SIZE, THUMBNAIL_SIZE, { fit: "cover" }).webp({ quality: 86 }).toFile(thumb);
+    console.log(`  thumbnail ${thumb.replace(root + "/", "")}`);
+  }
 }

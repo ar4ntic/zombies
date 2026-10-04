@@ -7,8 +7,9 @@ export interface WeaponDef {
   /** Seconds between shots. */
   fireInterval: number;
   automatic: boolean;
+  /** Shots in one energy capsule. */
   magazine: number;
-  /** Spare ammo at the start of a level. Infinity means unlimited. */
+  /** Spare energy at the start of a round, in shots. Infinity means unlimited. */
   startReserve: number;
   maxReserve: number;
   reloadTime: number;
@@ -24,7 +25,7 @@ export interface WeaponDef {
 
 export const WEAPONS: Record<WeaponId, WeaponDef> = {
   pistol: {
-    name: "Pulse Pistol",
+    name: "Laser Pistol",
     damage: 34,
     headshotMultiplier: 2.5,
     fireInterval: 0.2,
@@ -40,7 +41,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     recoil: 0.018,
   },
   rifle: {
-    name: "Storm Rifle",
+    name: "Laser Rifle",
     damage: 24,
     headshotMultiplier: 2.2,
     fireInterval: 0.095,
@@ -58,6 +59,10 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
 };
 
 export const WEAPON_ORDER: WeaponId[] = ["pistol", "rifle"];
+
+export function isWeaponId(value: unknown): value is WeaponId {
+  return typeof value === "string" && Object.hasOwn(WEAPONS, value);
+}
 
 /** Fraction of spread kept while aiming down sights. */
 export const ADS_SPREAD_FACTOR = 0.35;
