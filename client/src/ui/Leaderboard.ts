@@ -5,7 +5,7 @@ function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
-/** Best score per player for one difficulty and round length. */
+/** Best score per player and nickname for one difficulty and round length. */
 export class Leaderboard {
   readonly el = document.createElement("aside");
   private readonly sub: HTMLElement;
@@ -21,11 +21,11 @@ export class Leaderboard {
     this.status = this.el.querySelector(".board-status")!;
   }
 
-  async show(difficulty: string, minutes: number) {
+  async show(difficulty: string, minutes: number, nickname = "") {
     const request = ++this.request;
     this.sub.textContent = settingsLabel(difficulty, minutes * 60);
     this.setStatus("Loading...");
-    const board = await getLeaderboard(difficulty, minutes);
+    const board = await getLeaderboard(difficulty, minutes, nickname);
     if (request !== this.request) return;
     if (!board) {
       this.list.innerHTML = "";

@@ -159,7 +159,7 @@ export interface LeaderboardEntry {
   headshots: number;
   deaths: number;
   endedAt: string;
-  /** Set when the request named this player. */
+  /** Set when the request named this player (and, if given, this nickname). */
   me?: boolean;
 }
 

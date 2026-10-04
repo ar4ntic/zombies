@@ -1,6 +1,8 @@
 import { MAX_PLAYERS, isDifficulty, settingsLabel, type DifficultyId } from "@zombies/shared";
 import type { Game } from "../game/Game.ts";
-import { saveSettings, selectSegment, settingsSelectors } from "./Menu.ts";
+import { copyText } from "./clipboard.ts";
+import { saveSettings, settingsSelectors } from "./Menu.ts";
+import { selectSegment } from "./segmented.ts";
 
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -23,16 +25,16 @@ export class Lobby {
         <h1>Team lobby</h1>
         <div class="lobby-code">
           <span class="setting-label">Session code</span>
-          <strong>${escapeHtml(code)}</strong>
+          <div class="lobby-copy">
+            <strong>${escapeHtml(code)}</strong>
+            <button type="button" data-action="copyCode">Copy code</button>
+          </div>
         </div>
-        <div class="lobby-link">
-          <input data-ref="link" readonly value="${escapeHtml(link)}" />
+        <div class="lobby-copy">
+          <input readonly value="${escapeHtml(link)}" aria-label="Invite link" />
           <button type="button" data-action="copyLink">Copy link</button>
         </div>
-        <div class="lobby-share">
-          <button type="button" data-action="copyCode">Copy code</button>
-          <button type="button" data-action="share" ${"share" in navigator ? "" : "hidden"}>Share</button>
-        </div>
+        <button type="button" data-action="share" ${"share" in navigator ? "" : "hidden"}>Share invite</button>
         <div data-ref="hostSettings">${settingsSelectors({ difficulty: state.difficulty as DifficultyId, minutes: state.duration / 60 })}</div>
         <p class="settings-tag" data-ref="settings"></p>
         <p class="hint" data-ref="hint"></p>
@@ -57,9 +59,9 @@ export class Lobby {
     if (group) return this.changeSetting(group.dataset.setting!, button.dataset.value!);
     switch (button.dataset.action) {
       case "copyLink":
-        return this.copy(button, link, this.$.link as HTMLInputElement);
+        return void copyText(button, link);
       case "copyCode":
-        return this.copy(button, code);
+        return void copyText(button, code);
       case "share":
         return void navigator.share({ title: "Zombie Breakout", text: `Join my Zombie Breakout team! Code ${code}`, url: link }).catch(() => {});
       case "start":
@@ -71,23 +73,6 @@ export class Lobby {
 
   private changeSetting(setting: string, value: string) {
     this.game.changeSettings(setting === "difficulty" && isDifficulty(value) ? { difficulty: value } : { minutes: Number(value) });
-  }
-
-  private copy(button: HTMLButtonElement, text: string, field?: HTMLInputElement) {
-    const done = () => {
-      const label = button.dataset.label ?? button.textContent!;
-      button.dataset.label = label;
-      button.textContent = "Copied!";
-      setTimeout(() => (button.textContent = label), 1500);
-    };
-    const fallback = () => {
-      if (!field) return;
-      field.focus();
-      field.select();
-      if (document.execCommand("copy")) done();
-    };
-    if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, fallback);
-    else fallback();
   }
 
   update() {

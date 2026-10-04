@@ -83,6 +83,10 @@ body {
   }
 }
 
+.menu [hidden] {
+  display: none !important;
+}
+
 .menu h1 {
   margin: 0;
   white-space: nowrap;
@@ -201,6 +205,98 @@ body {
   background: var(--accent-dark);
   border-color: var(--accent);
   opacity: 1;
+}
+
+.device-settings {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 2vh, 16px);
+}
+
+.device-settings .setting-label {
+  display: flex;
+  justify-content: space-between;
+}
+
+.device-settings output {
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+
+.device-settings input[type="range"] {
+  width: 100%;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.device-settings .range-ends {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.device-settings .range-ends button {
+  padding: 2px 10px;
+  font-size: inherit;
+}
+
+/* The menus step aside while the mouse sensitivity is tried out, so the scene is in full view. */
+body.look-testing #ui {
+  visibility: hidden;
+}
+
+.look-test {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+.look-test-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.5);
+}
+
+.look-test-card {
+  position: absolute;
+  left: 50%;
+  bottom: 9vh;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 92vw;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 22px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid rgba(125, 255, 106, 0.25);
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.look-test-card strong {
+  font-size: 1.15rem;
+}
+
+.look-test-card output {
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
 }
 
 .menu .join-hint {
@@ -1276,24 +1372,16 @@ kbd {
   text-shadow: 0 0 24px rgba(125, 255, 106, 0.45);
 }
 
-.lobby .lobby-link {
+.lobby .lobby-copy {
   display: grid;
   grid-template-columns: 1fr auto;
+  align-items: center;
   gap: 10px;
 }
 
-.lobby .lobby-link input {
+.lobby .lobby-copy input {
   min-width: 0;
   font-size: 0.85rem;
-}
-
-.lobby .lobby-share {
-  display: flex;
-  gap: 10px;
-}
-
-.lobby .lobby-share button {
-  flex: 1;
 }
 
 .lobby [data-ref="hostSettings"] {
@@ -1377,7 +1465,7 @@ kbd {
   }
 }
 
-.hud .pause .pause-graphics {
+.hud .pause .pause-settings {
   width: min(420px, 100%);
   margin-bottom: 6px;
   text-align: left;

@@ -88,11 +88,15 @@ export class Input {
     return document.pointerLockElement === this.target;
   }
 
-  lock() {
-    this.target
+  /** Resolves to whether the pointer ended up locked. */
+  lock(): Promise<boolean> {
+    return this.target
       .requestPointerLock({ unadjustedMovement: true })
       .catch(() => this.target.requestPointerLock())
-      .catch(() => {});
+      .then(
+        () => this.locked,
+        () => false,
+      );
   }
 
   unlock() {

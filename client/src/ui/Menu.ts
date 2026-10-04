@@ -10,21 +10,14 @@ import {
   isRoundMinutes,
   type DifficultyId,
 } from "@zombies/shared";
-import { GRAPHICS_SETTINGS, isGraphicsSetting, type GraphicsSetting } from "../engine/Renderer.ts";
 import type { SessionChoice } from "../game/Game.ts";
 import { Leaderboard } from "./Leaderboard.ts";
+import { segmented, selectSegment } from "./segmented.ts";
+import { settingsControls, type SettingsTarget } from "./Settings.ts";
 
 const NAME_KEY = "zombies.nickname";
 const DIFFICULTY_KEY = "zombies.difficulty";
 const MINUTES_KEY = "zombies.minutes";
-const GRAPHICS_KEY = "zombies.graphics";
-
-const GRAPHICS_LABELS: Record<GraphicsSetting, string> = { auto: "Auto", low: "Low", medium: "Medium", high: "High", ultra: "Ultra" };
-
-export interface GraphicsTarget {
-  readonly graphics: GraphicsSetting;
-  setGraphics(setting: GraphicsSetting): void;
-}
 
 export interface GameSettings {
   difficulty: DifficultyId;
@@ -51,36 +44,6 @@ export function saveSettings(settings: GameSettings) {
   localStorage.setItem(MINUTES_KEY, String(settings.minutes));
 }
 
-export function loadGraphics(): GraphicsSetting {
-  const stored = localStorage.getItem(GRAPHICS_KEY);
-  return isGraphicsSetting(stored) ? stored : "auto";
-}
-
-/** Applies a graphics setting live and remembers it. */
-export function changeGraphics(target: GraphicsTarget, value: string) {
-  if (!isGraphicsSetting(value)) return;
-  target.setGraphics(value);
-  localStorage.setItem(GRAPHICS_KEY, value);
-}
-
-export function graphicsSelector(selected: GraphicsSetting): string {
-  return `
-    <div class="setting">
-      <span class="setting-label">Graphics</span>
-      ${segmented("graphics", GRAPHICS_SETTINGS.map((g) => [g, GRAPHICS_LABELS[g]]), selected)}
-    </div>`;
-}
-
-function segmented(name: string, options: Array<[string, string]>, selected: string): string {
-  return (
-    `<div class="segmented" role="radiogroup" data-setting="${name}">` +
-    options
-      .map(([value, label]) => `<button type="button" role="radio" data-value="${value}" aria-checked="${value === selected}">${label}</button>`)
-      .join("") +
-    `</div>`
-  );
-}
-
 export function settingsSelectors(settings: GameSettings): string {
   return `
     <div class="setting">
@@ -93,24 +56,18 @@ export function settingsSelectors(settings: GameSettings): string {
     </div>`;
 }
 
-/** Marks the selected option of a segmented control. */
-export function selectSegment(group: HTMLElement, value: string) {
-  for (const option of group.querySelectorAll<HTMLElement>("button")) option.setAttribute("aria-checked", String(option.dataset.value === value));
-}
-
-export function showMenu(root: HTMLElement, graphics: GraphicsTarget, inviteCode: string | null, errorMessage?: string): Promise<MenuResult> {
+export function showMenu(root: HTMLElement, device: SettingsTarget, inviteCode: string | null, errorMessage?: string): Promise<MenuResult> {
   const settings = loadSettings();
   const panel = document.createElement("div");
   panel.className = "menu";
   panel.innerHTML = `
-    <div class="menu-main">
+    <div class="menu-main" data-view="main">
       <h1>Zombie Breakout</h1>
       <p class="tagline">Clear the streets. Save the town.</p>
       <label>Your nickname
         <input name="nickname" maxlength="${NICKNAME_MAX_LENGTH}" autocomplete="off" placeholder="e.g. ShadowFox" />
       </label>
       ${settingsSelectors(settings)}
-      ${graphicsSelector(graphics.graphics)}
       <div class="buttons">
         <button data-action="solo" class="primary">Single player</button>
         <button data-action="create">Create team session</button>
@@ -120,39 +77,59 @@ export function showMenu(root: HTMLElement, graphics: GraphicsTarget, inviteCode
         <button data-action="join">Join</button>
       </div>
       <p class="join-hint">Joining players use the host's difficulty and round length.</p>
+      <button type="button" data-action="settings">Settings</button>
       <p class="error" hidden></p>
     </div>
+    <div class="menu-main" data-view="settings" hidden>
+      <h1>Settings</h1>
+      <p class="tagline">Saved on this device.</p>
+      <button type="button" class="primary" data-action="back">Back</button>
+    </div>
   `;
-  const board = new Leaderboard("Top survivors");
-  panel.append(board.el);
-  void board.show(settings.difficulty, settings.minutes);
-  root.append(panel);
-
+  const main = panel.querySelector<HTMLElement>('[data-view="main"]')!;
+  const settingsView = panel.querySelector<HTMLElement>('[data-view="settings"]')!;
+  settingsView.querySelector(".tagline")!.after(settingsControls(device));
   const nameInput = panel.querySelector<HTMLInputElement>('input[name="nickname"]')!;
   const codeInput = panel.querySelector<HTMLInputElement>('input[name="code"]')!;
   const error = panel.querySelector<HTMLParagraphElement>(".error")!;
   nameInput.value = localStorage.getItem(NAME_KEY) ?? "";
+
+  const board = new Leaderboard("Top survivors");
+  const showBoard = () => void board.show(settings.difficulty, settings.minutes, nameInput.value.trim());
+  panel.append(board.el);
+  showBoard();
+  nameInput.addEventListener("change", showBoard);
+  root.append(panel);
+
   if (inviteCode) codeInput.value = inviteCode;
   if (errorMessage) showError(errorMessage);
-  (nameInput.value ? (inviteCode ? panel.querySelector<HTMLButtonElement>('[data-action="join"]')! : panel.querySelector<HTMLButtonElement>('[data-action="solo"]')!) : nameInput).focus();
+  const startButton = panel.querySelector<HTMLButtonElement>(`[data-action="${inviteCode ? "join" : "solo"}"]`)!;
+  (nameInput.value ? startButton : nameInput).focus();
+
+  const showSettings = (show: boolean) => {
+    main.hidden = show;
+    settingsView.hidden = !show;
+    panel.querySelector<HTMLButtonElement>(`[data-action="${show ? "back" : "settings"}"]`)!.focus();
+  };
+  settingsView.querySelector('[data-action="back"]')!.addEventListener("click", () => showSettings(false));
 
   return new Promise((resolve) => {
-    panel.addEventListener("click", (event) => {
+    main.addEventListener("click", (event) => {
       const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button");
       const group = button?.closest<HTMLElement>(".segmented");
       if (button && group) {
         const value = button.dataset.value!;
         selectSegment(group, value);
-        if (group.dataset.setting === "graphics") return changeGraphics(graphics, value);
         if (group.dataset.setting === "difficulty") settings.difficulty = value as DifficultyId;
         else settings.minutes = Number(value);
         saveSettings(settings);
-        void board.show(settings.difficulty, settings.minutes);
+        showBoard();
         return;
       }
 
       const action = button?.dataset.action;
       if (!action) return;
+      if (action === "settings") return showSettings(true);
       const name = nameInput.value.trim();
       if (!name) return showError("Please enter a nickname.");
       localStorage.setItem(NAME_KEY, name);

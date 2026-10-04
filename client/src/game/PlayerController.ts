@@ -13,6 +13,8 @@ const JUMP_SPEED = 7.5;
 const EYE_HEIGHT = 1.7;
 const CROUCH_EYE_HEIGHT = 1.1;
 const DEAD_EYE_HEIGHT = 0.3;
+/** Radians of camera rotation per pixel of mouse travel. */
+const MOUSE_SENSITIVITY = 0.0022;
 const MAX_PITCH = Math.PI / 2 - 0.01;
 const BASE_FOV = 75;
 const AIM_FOV = 52;
@@ -23,7 +25,8 @@ export class PlayerController {
   readonly velocity = new Vector3();
   yaw = 0;
   pitch = 0;
-  sensitivity = 0.0022;
+  /** Player-chosen multiplier on the default look speed. */
+  sensitivityScale = 1;
   dead = false;
   aiming = false;
 
@@ -70,10 +73,10 @@ export class PlayerController {
     this.yaw += yaw;
   }
 
-  update(dt: number, controlsActive: boolean) {
-    if (controlsActive) {
+  update(dt: number, controlsActive: boolean, lookActive = controlsActive) {
+    if (lookActive) {
       const { dx, dy } = this.input.consumeMouse();
-      const sens = this.sensitivity * (this.aiming ? 0.65 : 1);
+      const sens = MOUSE_SENSITIVITY * this.sensitivityScale * (this.aiming ? 0.65 : 1);
       this.yaw -= dx * sens;
       this.pitch = MathUtils.clamp(this.pitch - dy * sens, -MAX_PITCH, MAX_PITCH);
     }

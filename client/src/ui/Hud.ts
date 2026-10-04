@@ -12,7 +12,8 @@ import {
 import type { Game } from "../game/Game.ts";
 import { Leaderboard } from "./Leaderboard.ts";
 import { Lobby } from "./Lobby.ts";
-import { changeGraphics, graphicsSelector, selectSegment } from "./Menu.ts";
+import { copyText } from "./clipboard.ts";
+import { settingsControls } from "./Settings.ts";
 
 const HURT_FADE = 1.6;
 
@@ -116,7 +117,7 @@ export class Hud {
           <button class="danger" data-ref="leaveYes">Yes</button>
           <button data-ref="leaveNo">Cancel</button>
         </div>
-        <div class="pause-graphics" data-ref="graphics">${graphicsSelector(game.graphics)}</div>
+        <div class="pause-settings" data-ref="deviceSettings"></div>
         <p class="invite" data-ref="invite"></p>
         <div class="controls">
           <span><kbd>W A S D</kbd> / <kbd>Arrows</kbd> move</span>
@@ -162,11 +163,12 @@ export class Hud {
     const code = game.network.sessionCode;
     if (!game.solo && code) {
       const link = `${location.origin}/join/${code}`;
-      this.$.invite!.innerHTML = `Invite friends: code <strong>${code}</strong> &middot; <code>${escapeHtml(link)}</code> <button class="copy">Copy link</button>`;
-      const copy = this.$.invite!.querySelector<HTMLButtonElement>(".copy")!;
-      copy.addEventListener("click", (event) => {
-        event.stopPropagation();
-        void navigator.clipboard?.writeText(link).then(() => (copy.textContent = "Copied!"));
+      this.$.invite!.innerHTML =
+        `Invite friends: code <strong>${code}</strong> <button class="copy" data-copy="${code}">Copy code</button>` +
+        ` &middot; <code>${escapeHtml(link)}</code> <button class="copy" data-copy="${escapeHtml(link)}">Copy link</button>`;
+      this.$.invite!.addEventListener("click", (event) => {
+        const copy = (event.target as HTMLElement).closest<HTMLButtonElement>(".copy");
+        if (copy) void copyText(copy, copy.dataset.copy!);
       });
     }
 
@@ -174,12 +176,7 @@ export class Hud {
     this.$.leave!.addEventListener("click", () => this.confirmLeave(true));
     this.$.leaveNo!.addEventListener("click", () => this.confirmLeave(false));
     this.$.leaveYes!.addEventListener("click", () => game.leave());
-    this.$.graphics!.addEventListener("click", (event) => {
-      const button = (event.target as HTMLElement).closest<HTMLButtonElement>(".segmented button");
-      if (!button) return;
-      selectSegment(button.parentElement!, button.dataset.value!);
-      changeGraphics(game, button.dataset.value!);
-    });
+    this.$.deviceSettings!.append(settingsControls(game));
     this.$.again!.addEventListener("click", () => game.restart());
     this.$.menu!.addEventListener("click", () => game.leave());
   }
@@ -333,7 +330,7 @@ export class Hud {
     const minutes = state.duration / 60;
     const ranked = isRoundMinutes(minutes);
     this.board.el.hidden = !ranked;
-    if (ranked) void this.board.show(state.difficulty, minutes);
+    if (ranked) void this.board.show(state.difficulty, minutes, this.game.me?.name);
   }
 
   update(dt: number) {
@@ -371,7 +368,7 @@ export class Hud {
     const countdown = state.phase === "countdown" && !state.solo ? Math.ceil(state.timer) : 0;
     this.set("countdown", countdown > 0 && game.input.locked ? String(countdown) : "");
 
-    if (game.input.locked) this.started = true;
+    if (game.input.locked && !game.lookTesting) this.started = true;
     if (inLobby) this.started = false;
     const showPause = (!game.input.locked && !game.finished && !inLobby) || this.lost;
     if (showPause && this.$.pause!.hidden) this.confirmLeave(false);

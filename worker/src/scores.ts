@@ -52,37 +52,44 @@ export function parseLimit(params: URLSearchParams): number {
   return Math.min(Math.max(Math.floor(Number(params.get("limit"))) || DEFAULT_LIMIT, 1), MAX_LIMIT);
 }
 
-/** Best score per player for one level / difficulty / round length. */
-export async function leaderboard(db: D1Database, category: Category, limit: number, playerId?: string): Promise<LeaderboardEntry[]> {
+/**
+ * Best score per player for one level / difficulty / round length. A player is a browser id plus a nickname,
+ * so people sharing one browser under different nicknames each keep their own entry.
+ */
+export async function leaderboard(db: D1Database, category: Category, limit: number, me?: { playerId: string; nickname?: string }): Promise<LeaderboardEntry[]> {
   const { results } = await db
     .prepare(
-      `SELECT playerId, nickname, score, kills, headshots, deaths, endedAt FROM (
-         SELECT rp.player_id AS playerId, rp.nickname, rp.score, rp.kills, rp.headshots, rp.deaths, r.ended_at AS endedAt,
-                ROW_NUMBER() OVER (PARTITION BY rp.player_id ORDER BY rp.score DESC, r.ended_at ASC) AS n
-           FROM round_players rp JOIN rounds r ON r.id = rp.round_id
-          WHERE r.level = ?1 AND r.difficulty = ?2 AND r.duration_minutes = ?3
-       )
-       WHERE n = 1
-       ORDER BY score DESC, endedAt ASC
-       LIMIT ?4`,
+      `SELECT nickname, score, kills, headshots, deaths, endedAt,
+              (playerId = ?5 AND (?6 IS NULL OR nameKey = lower(?6))) AS me
+         FROM (
+           SELECT rp.player_id AS playerId, lower(rp.nickname) AS nameKey, rp.nickname, rp.score, rp.kills, rp.headshots, rp.deaths,
+                  r.ended_at AS endedAt,
+                  ROW_NUMBER() OVER (PARTITION BY rp.player_id, lower(rp.nickname) ORDER BY rp.score DESC, r.ended_at ASC) AS n
+             FROM round_players rp JOIN rounds r ON r.id = rp.round_id
+            WHERE r.level = ?1 AND r.difficulty = ?2 AND r.duration_minutes = ?3
+         )
+        WHERE n = 1
+        ORDER BY score DESC, endedAt ASC
+        LIMIT ?4`,
     )
-    .bind(category.level, category.difficulty, category.durationMinutes, limit)
-    .all<Omit<LeaderboardEntry, "rank" | "me"> & { playerId: string }>();
-  return results.map(({ playerId: id, ...row }, i) => ({ rank: i + 1, ...row, ...(playerId && id === playerId ? { me: true } : {}) }));
+    .bind(category.level, category.difficulty, category.durationMinutes, limit, me?.playerId ?? null, me?.nickname ?? null)
+    .all<Omit<LeaderboardEntry, "rank" | "me"> & { me: number | null }>();
+  return results.map(({ me: mine, ...row }, i) => ({ rank: i + 1, ...row, ...(mine ? { me: true } : {}) }));
 }
 
-/** Stores a finished round and reports, per player id, whether it beat their previous best. */
+/** Stores a finished round and reports, per player id, whether it beat the previous best under the same nickname. */
 export async function recordRound(db: D1Database, round: RoundResult): Promise<Map<string, PersonalBestEvent>> {
-  const ids = round.players.map((p) => p.playerId);
+  const identities = round.players.map((p) => ({ id: p.playerId, name: p.nickname }));
   const previous = await db
     .prepare(
       `SELECT rp.player_id AS playerId, MAX(rp.score) AS best
-         FROM round_players rp JOIN rounds r ON r.id = rp.round_id
+         FROM round_players rp
+         JOIN rounds r ON r.id = rp.round_id
+         JOIN json_each(?4) p ON rp.player_id = json_extract(p.value, '$.id') AND lower(rp.nickname) = lower(json_extract(p.value, '$.name'))
         WHERE r.level = ?1 AND r.difficulty = ?2 AND r.duration_minutes = ?3
-          AND rp.player_id IN (SELECT value FROM json_each(?4))
         GROUP BY rp.player_id`,
     )
-    .bind(round.level, round.difficulty, round.durationMinutes, JSON.stringify(ids))
+    .bind(round.level, round.difficulty, round.durationMinutes, JSON.stringify(identities))
     .all<{ playerId: string; best: number }>();
   const bestBefore = new Map(previous.results.map((row) => [row.playerId, row.best]));
 

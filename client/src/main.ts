@@ -1,7 +1,8 @@
 import "./styles.css";
 import { isGraphicsSetting } from "./engine/Renderer.ts";
 import { Game } from "./game/Game.ts";
-import { loadGraphics, showMenu, showMessage } from "./ui/Menu.ts";
+import { showMenu, showMessage } from "./ui/Menu.ts";
+import { loadGraphics, loadSensitivity } from "./ui/Settings.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game")!;
 const ui = document.querySelector<HTMLElement>("#ui")!;
@@ -16,6 +17,7 @@ const requestedQuality = params.get("quality");
 const graphics = isGraphicsSetting(requestedQuality) ? requestedQuality : loadGraphics();
 
 const game = new Game(canvas, ui, graphics, params.has("debug"));
+game.setSensitivity(loadSensitivity());
 if (debug) Object.assign(window, { game });
 const loading = showMessage(ui, "Loading...");
 const loaded = game.load().finally(() => loading.remove());

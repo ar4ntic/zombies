@@ -32,8 +32,10 @@ export async function getSession(code: string): Promise<SessionInfo | undefined>
   return res.ok ? res.json() : undefined;
 }
 
-export async function getLeaderboard(difficulty: string, minutes: number, limit = 10): Promise<LeaderboardResponse | undefined> {
+/** `nickname` narrows the highlighted entry to that name; without it every entry from this browser is highlighted. */
+export async function getLeaderboard(difficulty: string, minutes: number, nickname = "", limit = 10): Promise<LeaderboardResponse | undefined> {
   const params = new URLSearchParams({ level: PARKING_LOT.id, difficulty, minutes: String(minutes), limit: String(limit), player: playerId() });
+  if (nickname) params.set("name", nickname);
   try {
     const res = await fetch(`/api/leaderboard?${params}`);
     return res.ok ? await res.json() : undefined;

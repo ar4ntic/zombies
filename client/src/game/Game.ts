@@ -55,6 +55,7 @@ export class Game {
   private resultsTimer?: ReturnType<typeof setTimeout>;
   private wasLocked = false;
   private readonly perf: PerfOverlay;
+  private lookTestEnd?: () => void;
   private sendTimer = 0;
   private fpsFrames = 0;
   private fpsTime = 0;
@@ -101,6 +102,9 @@ export class Game {
       onSwitch: (weapon) => this.network.sendWeapon(weapon),
       onHit: (head) => this.hud?.hitmarker(head),
     });
+    document.addEventListener("pointerlockchange", () => {
+      if (!this.input.locked) this.finishLookTest();
+    });
     const spawn = LEVEL.playerSpawns[0]!;
     this.player.spawn(spawn.x, spawn.z, Math.atan2(spawn.x, spawn.z));
   }
@@ -135,6 +139,40 @@ export class Game {
 
   setGraphics(setting: GraphicsSetting) {
     this.renderer.setGraphics(setting);
+  }
+
+  get sensitivity(): number {
+    return this.player.sensitivityScale;
+  }
+
+  setSensitivity(scale: number) {
+    this.player.sensitivityScale = scale;
+  }
+
+  get lookTesting(): boolean {
+    return this.lookTestEnd !== undefined;
+  }
+
+  /**
+   * Locks the pointer for looking around only, so the mouse sensitivity can be felt without playing:
+   * movement and weapons stay off and a solo round stays paused. `onEnd` runs once the pointer is free again.
+   */
+  startLookTest(onEnd: () => void) {
+    this.lookTestEnd = onEnd;
+    void this.input.lock().then((locked) => {
+      if (!locked) this.finishLookTest();
+    });
+  }
+
+  stopLookTest() {
+    if (this.input.locked) this.input.unlock();
+    else this.finishLookTest();
+  }
+
+  private finishLookTest() {
+    const onEnd = this.lookTestEnd;
+    this.lookTestEnd = undefined;
+    onEnd?.();
   }
 
   get playerCount(): number {
@@ -238,10 +276,12 @@ export class Game {
     if (state && me) this.syncWithServer(state, me);
 
     const paused = !!state?.paused;
-    const active = this.input.locked && !this.finished && !this.inLobby && !paused && !!me;
+    const testing = this.lookTesting && this.input.locked;
+    const active = this.input.locked && !testing && !this.finished && !this.inLobby && !paused && !!me;
     this.handlePointerLock();
+    if (testing) this.input.consumeWheel();
 
-    this.player.update(paused ? 0 : dt, active);
+    this.player.update(paused ? 0 : dt, active, active || testing);
     this.weapons.update(dt, active);
 
     const lookDX = (this.player.yaw - this.lastYaw) / Math.max(dt, 1e-3);
@@ -311,7 +351,7 @@ export class Game {
     if (locked === this.wasLocked) return;
     this.wasLocked = locked;
     this.sound.unlock();
-    if (this.solo && !this.finished) this.network.sendPause(!locked);
+    if (this.solo && !this.finished) this.network.sendPause(!locked || this.lookTesting);
   }
 
   private sendPosition(dt: number) {

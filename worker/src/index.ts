@@ -58,7 +58,9 @@ async function getLeaderboard(env: Env, params: URLSearchParams): Promise<Respon
   const category = parseCategory(params);
   if (!category) return json({ error: "difficulty and a standard round length (minutes) are required" }, 400);
   try {
-    const entries = await leaderboard(env.DB, category, parseLimit(params), params.get("player") ?? undefined);
+    const playerId = params.get("player");
+    const me = playerId ? { playerId, nickname: params.get("name")?.trim() || undefined } : undefined;
+    const entries = await leaderboard(env.DB, category, parseLimit(params), me);
     return json({ ...category, entries });
   } catch (err) {
     console.error("Could not load leaderboard", err);
