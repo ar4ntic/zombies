@@ -17,6 +17,8 @@ export interface ZombieDef {
   damage: number;
   attackRange: number;
   attackCooldown: number;
+  /** Highest surface a player can stand on and still be hit. */
+  reach: number;
   points: number;
   radius: number;
   /** Visual scale relative to a 1.8 m tall human. */
@@ -36,6 +38,7 @@ export const ZOMBIES: Record<ZombieType, ZombieDef> = {
     damage: 12,
     attackRange: 1.4,
     attackCooldown: 1.4,
+    reach: 1,
     points: 100,
     radius: 0.4,
     scale: 1,
@@ -48,6 +51,7 @@ export const ZOMBIES: Record<ZombieType, ZombieDef> = {
     damage: 8,
     attackRange: 1.3,
     attackCooldown: 1.0,
+    reach: 1,
     points: 150,
     radius: 0.35,
     scale: 0.95,
@@ -60,6 +64,7 @@ export const ZOMBIES: Record<ZombieType, ZombieDef> = {
     damage: 30,
     attackRange: 1.9,
     attackCooldown: 1.8,
+    reach: 2,
     points: 400,
     radius: 0.55,
     scale: 1.3,

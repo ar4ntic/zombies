@@ -8,8 +8,8 @@ const TEXTURE_STYLE =
   "no blood, no gore, no dirt stains";
 
 /**
- * Animation library ids applied to every zombie, in order. Clip names in the output
- * GLB follow this order, so the client maps them by index (see ANIMATION_KEYS).
+ * Animation library ids applied to every zombie. The clips keep their library names in the
+ * output GLB; characters/manifest.json maps the keys to those names for the client.
  */
 export const ANIMATIONS = [
   { key: "walk", actionId: 112 }, // Frankenstein Walk
@@ -73,5 +73,76 @@ export const CAST = [
     id: "zombie_teen",
     prompt: `${STYLE}, a zombie teenager wearing an oversized hoodie, big headphones around the neck, baggy jeans and sneakers`,
     texture: `${TEXTURE_STYLE}, purple oversized hoodie, black headphones, blue baggy jeans, white sneakers`,
+  },
+];
+
+const PLAYER_STYLE =
+  "Stylized 3D game character in the style of Fortnite and Pixar, full body, friendly brave cartoon hero, " +
+  "healthy natural skin, big expressive eyes, confident smile, clean appealing proportions, empty hands, " +
+  "no weapons, no blood, kid friendly, high quality game asset, standing";
+
+const PLAYER_TEXTURE_STYLE = "vibrant stylized hand-painted look, natural skin tones, clean cartoon clothing colors, no blood, no dirt stains";
+
+/** Animation library ids applied to every player skin. */
+export const PLAYER_ANIMATIONS = [
+  { key: "idle", actionId: 0 }, // Idle
+  { key: "aim", actionId: 89 }, // Combat Stance
+  { key: "walk", actionId: 234 }, // Walk Forward While Shooting
+  { key: "run", actionId: 98 }, // Run and Shoot
+  { key: "knockedOut", actionId: 187 }, // Knock Down
+  { key: "cheer", actionId: 59 }, // Victory Cheer
+];
+
+/** Player skins. The ids, labels and arm colors the game uses are in shared/src/skins.ts. */
+export const PLAYERS = [
+  {
+    id: "player_ranger",
+    prompt: `${PLAYER_STYLE}, a young man park ranger wearing a green ranger jacket, khaki shorts, hiking boots and a wide-brim ranger hat`,
+    texture: `${PLAYER_TEXTURE_STYLE}, forest green ranger jacket, khaki shorts, brown hiking boots, tan ranger hat`,
+  },
+  {
+    id: "player_mechanic",
+    prompt: `${PLAYER_STYLE}, a stocky man mechanic with dark brown skin and a short beard wearing blue overalls, a grey cap and black work gloves`,
+    texture: `${PLAYER_TEXTURE_STYLE}, blue overalls, white t-shirt, grey cap, black work gloves`,
+  },
+  {
+    id: "player_astronaut",
+    prompt: `${PLAYER_STYLE}, a man astronaut with East Asian features and short black hair wearing a white space suit with orange stripes and orange gloves, no helmet`,
+    texture: `${PLAYER_TEXTURE_STYLE}, white space suit with orange stripes, orange gloves, grey boots`,
+  },
+  {
+    id: "player_skater",
+    prompt: `${PLAYER_STYLE}, a teenage boy skater with freckles wearing a pink hoodie, a backwards cap, baggy shorts and sneakers`,
+    texture: `${PLAYER_TEXTURE_STYLE}, pink hoodie, blue backwards cap, grey baggy shorts, white sneakers`,
+  },
+  {
+    id: "player_firefighter",
+    prompt: `${PLAYER_STYLE}, a tall man firefighter with a moustache wearing a yellow firefighter coat with reflective stripes, a firefighter helmet and black gloves`,
+    texture: `${PLAYER_TEXTURE_STYLE}, yellow firefighter coat with silver reflective stripes, yellow helmet, black gloves and boots`,
+  },
+  {
+    id: "player_pilot",
+    prompt: `${PLAYER_STYLE}, a woman pilot with dark brown skin and curly hair wearing a brown leather bomber jacket, aviator goggles on her forehead and a white scarf`,
+    texture: `${PLAYER_TEXTURE_STYLE}, brown leather bomber jacket, white scarf, olive trousers, brown gloves`,
+  },
+  {
+    id: "player_explorer",
+    prompt: `${PLAYER_STYLE}, a young woman explorer with a ponytail wearing a khaki safari shirt, shorts, a small backpack and hiking boots`,
+    texture: `${PLAYER_TEXTURE_STYLE}, khaki safari shirt, olive shorts, brown backpack, brown hiking boots`,
+  },
+  {
+    id: "player_medic",
+    prompt: `${PLAYER_STYLE}, a woman paramedic with black hair in a bun wearing a teal paramedic uniform with white stripes and white gloves`,
+    texture: `${PLAYER_TEXTURE_STYLE}, teal paramedic uniform with white reflective stripes, white gloves, white sneakers`,
+  },
+  {
+    id: "player_engineer",
+    prompt: `${PLAYER_STYLE}, a woman engineer with curly red hair wearing an orange hi-vis vest over a grey shirt, a white hard hat, jeans and grey gloves`,
+    texture: `${PLAYER_TEXTURE_STYLE}, orange hi-vis vest with reflective stripes, white hard hat, blue jeans, grey gloves`,
+  },
+  {
+    id: "player_scientist",
+    prompt: `${PLAYER_STYLE}, an older woman scientist with grey hair and round glasses wearing a white lab coat, purple gloves and safety goggles around her neck`,
+    texture: `${PLAYER_TEXTURE_STYLE}, white lab coat, purple gloves, teal sweater, dark trousers`,
   },
 ];

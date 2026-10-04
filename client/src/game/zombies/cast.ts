@@ -20,6 +20,8 @@ export type DeathKey = "death" | "death2";
 interface Manifest {
   clips: Record<ClipKey, string>;
   characters: Record<ZombieType, string[]>;
+  /** Clip names of the player skins, by the keys of `PlayerClip`. */
+  players: { clips: Record<string, string> };
 }
 
 export interface CharacterTemplate {
@@ -42,7 +44,7 @@ const CULL_RADIUS = 2;
 let manifest: Promise<Manifest> | undefined;
 const templates = new Map<string, Promise<CharacterTemplate>>();
 
-function loadManifest(): Promise<Manifest> {
+export function loadManifest(): Promise<Manifest> {
   manifest ??= fetch("/assets/characters/manifest.json").then((r) => r.json() as Promise<Manifest>);
   return manifest;
 }
@@ -113,7 +115,7 @@ function sample(root: Object3D, clip: AnimationClip, steps: number, visit: (t: n
 }
 
 /** Average backward speed of whichever foot is planted, which equals the intended ground speed. */
-function measureGroundSpeed(root: Object3D, clip: AnimationClip): number {
+export function measureGroundSpeed(root: Object3D, clip: AnimationClip): number {
   const left = root.getObjectByName("LeftFoot");
   const right = root.getObjectByName("RightFoot");
   if (!left || !right) return 1;

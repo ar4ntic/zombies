@@ -1,10 +1,14 @@
-// Checks session options, a two-client team session and the team lobby (including a 1-minute team round),
+// Checks session options, accounts, a two-client team session and the team lobby (including a 1-minute team round),
 // then plays a solo round over the network with perfect aim.
 // Usage: pnpm smoke [url] [roundSeconds | --minutes=N] [--difficulty=normal] [--die] [--human | --still]
 // --minutes plays a standard-length round, which also shows up on the leaderboard (checked at the end).
+// --energy=infinite|limited picks the energy mode of the solo round (default limited, which also checks capsule pickups).
+// --mail-log=FILE reads the confirmation link from the output of a local `wrangler dev` (which logs account mails
+//   instead of sending them), to also check that a confirmed account's nickname is refused to everybody else.
 // --die holds fire until the bot is knocked out once, to exercise death, penalty and respawn.
 // --human aims like a decent player (slower, misses, fewer headshots, shorter range) and backs away from zombies.
 // --still aims like --human but stands still.
+import { readFileSync } from "node:fs";
 import { Callbacks, Decoder } from "@colyseus/schema";
 import { GameState, StateFrame } from "../../shared/src/index.ts";
 
@@ -14,6 +18,8 @@ const url = (args[0] ?? "http://localhost:8787").replace(/\/$/, "");
 const minutes = option("minutes") ? Number(option("minutes")) : undefined;
 const duration = minutes ? minutes * 60 : Number(args[1] ?? 60);
 const difficulty = option("difficulty") ?? "normal";
+const energy = option("energy") ?? "limited";
+const mailLog = option("mail-log");
 const testDeath = process.argv.includes("--die");
 const still = process.argv.includes("--still");
 const human = still || process.argv.includes("--human");
@@ -42,12 +48,13 @@ class Session {
       body: JSON.stringify(options),
     });
     if (status !== 201) throw new Error(`create session failed: HTTP ${status}`);
-    return Session.join(body.code, options.name, options.playerId);
+    return Session.join(body.code, options.name, options.playerId, options.skin);
   }
 
-  static async join(code, name, playerId = crypto.randomUUID()) {
+  /** `cookie` joins as the account that session cookie belongs to. */
+  static async join(code, name, playerId = crypto.randomUUID(), skin, cookie) {
     const session = new Session(code);
-    await session.connect(new URLSearchParams({ name, playerId }));
+    await session.connect(new URLSearchParams({ name, playerId, ...(skin ? { skin } : {}) }), cookie);
     return session;
   }
 
@@ -64,9 +71,9 @@ class Session {
     return this.decoder.state;
   }
 
-  connect(params) {
+  connect(params, cookie) {
     return new Promise((resolve, reject) => {
-      const socket = new WebSocket(`${url.replace(/^http/, "ws")}/ws/${this.code}?${params}`);
+      const socket = new WebSocket(`${url.replace(/^http/, "ws")}/ws/${this.code}?${params}`, cookie ? { headers: { cookie } } : undefined);
       socket.binaryType = "arraybuffer";
       this.socket = socket;
       let synced = false;
@@ -118,12 +125,18 @@ class Session {
 }
 
 async function checkSessions() {
-  const host = await Session.create({ name: "Host", difficulty: "bogus", minutes: 4, duration: 30 });
-  const guest = await Session.join(host.code, "Guest");
+  const host = await Session.create({ name: "Host", difficulty: "bogus", minutes: 4, duration: 30, energy: "bogus", skin: "bogus" });
+  const guest = await Session.join(host.code, "Guest", undefined, "player_medic");
   await sleep(400);
-  if (host.state.difficulty !== "normal" || host.state.duration !== 300) {
-    failures.push(`invalid options not clamped (${host.state.difficulty}, ${host.state.duration}s)`);
+  if (host.state.difficulty !== "normal" || host.state.duration !== 300 || host.state.energy !== "limited") {
+    failures.push(`invalid options not clamped (${host.state.difficulty}, ${host.state.duration}s, ${host.state.energy})`);
   }
+  const skins = [host, guest].map((s) => host.state.players.get(s.sessionId)?.skin).join(",");
+  if (skins !== "player_ranger,player_medic") failures.push(`skins wrong: ${skins}`);
+  guest.send("skin", { skin: "bogus" });
+  guest.send("skin", { skin: "player_pilot" });
+  await sleep(300);
+  if (host.state.players.get(guest.sessionId)?.skin !== "player_pilot") failures.push("skin change not applied");
   if (guest.state.hostId !== host.sessionId) failures.push("creator is not host");
   host.leave();
   await sleep(400);
@@ -132,12 +145,78 @@ async function checkSessions() {
   await sleep(300);
   if ((await api(`/api/sessions/${host.code}`)).status !== 404) failures.push("empty session still exists");
 
-  const custom = await Session.create({ name: "Host", difficulty: "nightmare", minutes: 10 });
+  const custom = await Session.create({ name: "Host", difficulty: "nightmare", minutes: 10, energy: "infinite" });
   await sleep(400);
   const { state } = custom;
-  if (state.difficulty !== "nightmare" || state.duration !== 600) failures.push("custom settings not applied");
+  if (state.difficulty !== "nightmare" || state.duration !== 600 || state.energy !== "infinite") failures.push("custom settings not applied");
   console.log(`sessions: clamped=normal/300s, nightmare/10min star=${state.scoreStar}, host transfer ok=${!failures.length}`);
   custom.leave();
+}
+
+/** Account endpoints with a cookie jar of one. */
+function accountClient() {
+  let cookie = "";
+  const call = async (method, path, body) => {
+    const res = await fetch(`${url}/api/auth/${path}`, {
+      method,
+      headers: { "content-type": "application/json", origin: url, ...(cookie ? { cookie } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const set = res.headers.get("set-cookie");
+    if (set) cookie = set.split(";")[0];
+    return { status: res.status, body: await res.json().catch(() => null) };
+  };
+  return { call, cookie: () => cookie };
+}
+
+async function checkAccounts() {
+  const before = failures.length;
+  const stamp = Date.now().toString(36);
+  const email = `smoke-${stamp}@example.test`;
+  const password = `smoke-${stamp}-pass`;
+  const nickname = `Smoke${stamp.slice(-6)}`;
+  const account = accountClient();
+  const expect = (what, ok) => ok || failures.push(`accounts: ${what}`);
+
+  expect("short password accepted", (await account.call("POST", "register", { email, password: "short" })).status === 400);
+  const registered = await account.call("POST", "register", { email, password });
+  expect("register failed", registered.status === 201 && registered.body?.account?.email === email && !registered.body.account.verified);
+  expect("duplicate email accepted", (await account.call("POST", "register", { email, password })).status === 409);
+  expect("cross-site request accepted", (await fetch(`${url}/api/auth/logout`, { method: "POST", headers: { origin: "https://elsewhere.example" } })).status === 403);
+  expect("invalid nickname accepted", (await account.call("PUT", "nickname", { nickname: "x" })).status === 400);
+  const named = await account.call("PUT", "nickname", { nickname });
+  expect("nickname not set", named.status === 200 && named.body?.account?.nickname === nickname);
+
+  const host = await Session.create({ name: "AccountHost" });
+  const check = async (cookie) => (await (await fetch(`${url}/api/nicknames/check?name=${nickname.toUpperCase()}`, { headers: cookie ? { cookie } : {} })).json());
+  const open = await Session.join(host.code, nickname).then((s) => s.leave() ?? "joined", () => "refused");
+  expect(`unconfirmed nickname already protected (${open})`, open === "joined" && !(await check()).protected);
+
+  let verified = false;
+  if (mailLog) {
+    const token = [...readFileSync(mailLog, "utf8").matchAll(/\/verify#([\w-]+)/g)].at(-1)?.[1];
+    const confirmed = await account.call("POST", "verify", { token });
+    verified = confirmed.status === 200 && confirmed.body?.account?.verified === true;
+    expect("email confirmation failed", verified);
+    expect("confirmation link worked twice", (await account.call("POST", "verify", { token })).status === 400);
+    const stranger = await Session.join(host.code, nickname.toUpperCase()).then((s) => s.leave() ?? "joined", () => "refused");
+    expect(`protected nickname given to a stranger (${stranger})`, stranger === "refused");
+    const state = await check();
+    const mine = await check(account.cookie());
+    expect("nickname check wrong", state.protected && !state.mine && mine.protected && mine.mine);
+  }
+  const owner = await Session.join(host.code, "SomethingElse", undefined, undefined, account.cookie());
+  await sleep(300);
+  expect("account player not named after the account", host.state.players.get(owner.sessionId)?.name === nickname);
+  owner.leave();
+  host.leave();
+
+  expect("logout failed", (await account.call("POST", "logout")).status === 200 && (await account.call("GET", "me")).body?.account === null);
+  expect("wrong password accepted", (await account.call("POST", "login", { email, password: `${password}!` })).status === 401);
+  expect("login failed", (await account.call("POST", "login", { email, password })).body?.account?.nickname === nickname);
+  expect("account deleted without the password", (await account.call("DELETE", "me", { password: "wrong-password" })).status === 401);
+  expect("account not deleted", (await account.call("DELETE", "me", { password })).status === 200 && !(await check()).protected);
+  console.log(`accounts: register, nickname, ${verified ? "confirmed + protected" : "confirmation skipped (no --mail-log)"}, login, delete, ok=${failures.length === before}`);
 }
 
 async function checkTeam() {
@@ -228,7 +307,8 @@ async function checkLobby() {
   const star = host.state.scoreStar;
   host.send("settings", { difficulty: "easy" });
   host.send("settings", { minutes: 1 });
-  await waitFor("guest to see the new settings", () => guest.state.difficulty === "easy" && guest.state.duration === 60);
+  host.send("settings", { energy: "infinite" });
+  await waitFor("guest to see the new settings", () => guest.state.difficulty === "easy" && guest.state.duration === 60 && guest.state.energy === "infinite");
   if (guest.state.scoreStar === star || !lobby(guest)) failures.push("settings change did not update the star score or left the lobby");
 
   host.send("start", {});
@@ -250,6 +330,11 @@ async function checkLobby() {
   console.log(`lobby round: ${host.state.difficulty} ${host.state.duration}s, team score ${score}, kills host=${kills.get(host)} guest=${kills.get(guest)}, hits host=${hits.get(host)} guest=${hits.get(guest)}`);
   if (!kills.get(host) && !kills.get(guest)) failures.push("nobody scored a kill in the lobby round");
   if (!hits.get(host) || !hits.get(guest)) failures.push("a lobby player landed no hits");
+  for (const s of kills.keys()) {
+    const p = host.state.players.get(s.sessionId);
+    if (!p || p.hits !== hits.get(s) || p.shots < p.hits) failures.push(`accuracy counters wrong: ${p?.hits}/${p?.shots} for ${hits.get(s)} hit events`);
+  }
+  if (host.state.pickups.size > 0 && [...host.state.pickups.values()].some((p) => p.kind === "energy")) failures.push("energy capsules in an infinite round");
 
   guest.send("restart", {});
   await sleep(500);
@@ -258,7 +343,7 @@ async function checkLobby() {
   await waitFor("both back in the lobby", () => lobby(host) && lobby(guest));
   const scores = [...guest.state.players.values()].map((p) => p.score);
   if (scores.some((s) => s !== 0) || guest.state.teamScore !== 0) failures.push("scores not reset in the lobby");
-  if (guest.state.difficulty !== "easy" || guest.state.duration !== 60) failures.push("lobby forgot the settings");
+  if (guest.state.difficulty !== "easy" || guest.state.duration !== 60 || guest.state.energy !== "infinite") failures.push("lobby forgot the settings");
 
   host.send("start", {});
   await waitFor("second round", () => host.state.phase === "playing", 6000);
@@ -269,14 +354,16 @@ async function checkLobby() {
 }
 
 await checkSessions();
+await checkAccounts();
 await checkTeam();
 await checkLobby();
 
 const playerId = crypto.randomUUID();
-const room = await Session.create({ name: "Bot", playerId, solo: true, difficulty, ...(minutes ? { minutes } : { duration }) });
+const room = await Session.create({ name: "Bot", playerId, solo: true, difficulty, energy, ...(minutes ? { minutes } : { duration }) });
 await sleep(300);
 console.log(`joined ${room.code}, ${room.state.difficulty} round ${room.state.duration}s, star at ${room.state.scoreStar}${testDeath ? ", testing knockout" : ""}`);
 if (room.state.difficulty !== difficulty) failures.push(`difficulty ${room.state.difficulty}, expected ${difficulty}`);
+if (room.state.energy !== energy) failures.push(`energy ${room.state.energy}, expected ${energy}`);
 let pauseCheck = "pending";
 let pausedTimer = 0;
 let pausedAt = 0;
@@ -294,6 +381,14 @@ let deathPhase = testDeath;
 let observedDeaths = 0;
 let maxAlive = 0;
 let personalBest;
+let waveCountdowns = 0;
+let countingDown = false;
+let earlyWave = false;
+let sawCapsule = false;
+let collected = 0;
+let healed = 0;
+let healAttempts = 0;
+let home;
 const types = new Set();
 
 room.onMessage("zombieHit", () => hits++);
@@ -302,6 +397,11 @@ room.onMessage("playerHurt", (e) => {
   if (e.player === room.sessionId) hurt++;
 });
 room.onMessage("personalBest", (e) => (personalBest = e));
+room.onMessage("pickup", (e) => {
+  if (e.player !== room.sessionId) return;
+  if (e.kind === "energy") collected++;
+  else healed += e.amount;
+});
 
 const started = Date.now();
 const elapsed = () => ((Date.now() - started) / 1000).toFixed(1);
@@ -344,7 +444,33 @@ await new Promise((resolve) => {
       room.send("pause", { paused: false });
     }
 
+    if (s.phase === "playing") {
+      if (s.waveIn > 0 && !countingDown) waveCountdowns++;
+      countingDown = s.waveIn > 0;
+      if (s.waveIn > 0 && s.zombies.size > 0) earlyWave = true;
+    }
+
     let { x, z } = me;
+    // The server does not limit movement speed, so the bot steps straight onto a capsule to collect it.
+    const capsule = [...s.pickups].find(([, p]) => p.kind === "energy");
+    if (capsule) sawCapsule = true;
+    if (capsule && !human && !me.dead && !deathPhase && s.phase === "playing") {
+      x = capsule[1].x;
+      z = capsule[1].z;
+      room.send("move", { x, y: 0, z, yaw: 0, pitch: 0 });
+      room.send("collect", { id: capsule[0] });
+    }
+    // While waiting to be knocked out, a hurt bot steps onto a health pack once and returns to the zombies.
+    const pack = [...s.pickups].find(([, p]) => p.kind === "health");
+    if (deathPhase && pack && !me.dead && me.hp < 100 && healed === 0) {
+      healAttempts++;
+      home ??= { x, z };
+      x = pack[1].x;
+      z = pack[1].z;
+    } else if (home) {
+      ({ x, z } = home);
+      home = undefined;
+    }
     if (human && !still && !me.dead) {
       let fx = -x / ARENA_LIMIT;
       let fz = -z / ARENA_LIMIT;
@@ -384,7 +510,8 @@ await new Promise((resolve) => {
       const dancing = [...s.zombies.values()].filter((z) => z.anim === 3).length;
       console.log(
         `END ${s.difficulty} ${s.duration}s phase=${s.phase} stars=${s.stars} star=${s.scoreStar} teamScore=${s.teamScore} score=${me.score} kills=${me.kills} headshots=${me.headshots} deaths=${me.deaths} ` +
-          `hits=${hits} hurt=${hurt} maxAlive=${maxAlive} waves=${s.wave} dancing=${dancing}/${s.zombies.size} types=${[...types].join(",")}`,
+          `hits=${hits} shots=${me.shots} hurt=${hurt} maxAlive=${maxAlive} waves=${s.wave} countdowns=${waveCountdowns} capsules=${collected} healed=${healed} ` +
+          `dancing=${dancing}/${s.zombies.size} types=${[...types].join(",")}`,
       );
       if (s.phase !== "ended") failures.push("round did not end");
       if (kills === 0) failures.push("no kills");
@@ -394,6 +521,12 @@ await new Promise((resolve) => {
       if (me.deaths !== observedDeaths) failures.push(`deaths counter ${me.deaths}, observed ${observedDeaths}`);
       if (s.teamScore !== me.score) failures.push("team score != player score");
       if (pauseCheck !== "ok") failures.push(`solo pause did not freeze the timer (${pauseCheck})`);
+      if (me.hits !== hits || me.shots < me.hits) failures.push(`accuracy counters wrong: ${me.hits}/${me.shots} for ${hits} hit events`);
+      if (healAttempts > 3 && healed === 0) failures.push("health pack not applied to a hurt player standing on it");
+      if (earlyWave) failures.push("a wave was announced while zombies were still standing");
+      if (s.wave > 1 && waveCountdowns < s.wave - 1) failures.push(`${s.wave} waves but only ${waveCountdowns} countdowns`);
+      if (s.waveIn !== 0 || s.pickups.size !== 0) failures.push("wave countdown or pickups left after the round");
+      if (energy === "infinite" ? sawCapsule : !human && !testDeath && duration >= 40 && collected === 0) failures.push(`energy capsules wrong for ${energy} mode (seen=${sawCapsule}, collected=${collected})`);
       resolve();
     }
   }, 100);
@@ -407,10 +540,13 @@ else if (personalBest.isBest !== finalScore > 0 || personalBest.previousBest !==
 
 const roundMinutes = room.state.duration / 60;
 if (STANDARD_MINUTES.includes(roundMinutes)) {
-  const board = await api(`/api/leaderboard?level=${room.state.levelId}&difficulty=${difficulty}&minutes=${roundMinutes}&limit=50&player=${playerId}`);
+  const board = await api(`/api/leaderboard?level=${room.state.levelId}&difficulty=${difficulty}&minutes=${roundMinutes}&energy=${energy}&limit=50&player=${playerId}`);
   const mine = board.body?.entries?.find((e) => e.me);
-  console.log(`leaderboard ${difficulty}/${roundMinutes}min: ${board.body?.entries?.length ?? 0} entries, bot ${mine ? `#${mine.rank} ${mine.nickname} ${mine.score}` : "missing"}`);
+  console.log(`leaderboard ${difficulty}/${roundMinutes}min/${energy}: ${board.body?.entries?.length ?? 0} entries, bot ${mine ? `#${mine.rank} ${mine.nickname} ${mine.score}` : "missing"}`);
   if (!mine || mine.score !== finalScore) failures.push("bot not on the leaderboard with its score");
+  const other = energy === "limited" ? "infinite" : "limited";
+  const otherBoard = await api(`/api/leaderboard?level=${room.state.levelId}&difficulty=${difficulty}&minutes=${roundMinutes}&energy=${other}&limit=50&player=${playerId}`);
+  if (otherBoard.body?.entries?.some((e) => e.me)) failures.push(`bot also on the ${other} leaderboard`);
 } else {
   console.log(`leaderboard: skipped, ${room.state.duration}s is not a standard round length`);
 }

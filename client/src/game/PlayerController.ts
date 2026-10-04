@@ -1,5 +1,14 @@
 import { MathUtils, Vector3, type PerspectiveCamera } from "three";
-import { PLAYER_RADIUS, resolveCircle, type Box } from "@zombies/shared";
+import {
+  PLAYER_GRAVITY,
+  PLAYER_JUMP_SPEED,
+  PLAYER_RADIUS,
+  STAND_OVERHANG,
+  STAND_TOLERANCE,
+  resolveCircle,
+  surfaceHeight,
+  type Box,
+} from "@zombies/shared";
 import type { Input } from "./Input.ts";
 
 const WALK_SPEED = 5;
@@ -8,8 +17,6 @@ const CROUCH_SPEED = 2.5;
 const AIM_SPEED = 3;
 const ACCELERATION = 60;
 const FRICTION = 10;
-const GRAVITY = 24;
-const JUMP_SPEED = 7.5;
 const EYE_HEIGHT = 1.7;
 const CROUCH_EYE_HEIGHT = 1.1;
 const DEAD_EYE_HEIGHT = 0.3;
@@ -112,22 +119,25 @@ export class PlayerController {
     }
 
     if (controlsActive && this.onGround && this.input.pressed("jump") && !crouching && !this.dead) {
-      this.velocity.y = JUMP_SPEED;
+      this.velocity.y = PLAYER_JUMP_SPEED;
       this.onGround = false;
     }
-    this.velocity.y -= GRAVITY * dt;
+    this.velocity.y -= PLAYER_GRAVITY * dt;
 
+    // Objects whose top is at or below the feet are walked over and stood on; everything taller is a wall.
+    const feet = this.position.y + STAND_TOLERANCE;
     this.position.addScaledVector(this.velocity, dt);
-    if (this.position.y <= 0) {
-      this.position.y = 0;
-      this.velocity.y = 0;
-      this.onGround = true;
-    }
     const pos2 = { x: this.position.x, z: this.position.z };
-    resolveCircle(pos2, PLAYER_RADIUS, this.colliders);
+    resolveCircle(pos2, PLAYER_RADIUS, this.colliders, feet);
     const limit = this.arenaHalfSize - PLAYER_RADIUS;
     this.position.x = MathUtils.clamp(pos2.x, -limit, limit);
     this.position.z = MathUtils.clamp(pos2.z, -limit, limit);
+    const floor = surfaceHeight(this.position.x, this.position.z, this.colliders, feet, STAND_OVERHANG);
+    this.onGround = this.position.y <= floor;
+    if (this.onGround) {
+      this.position.y = floor;
+      this.velocity.y = 0;
+    }
 
     if (this.onGround) this.bobPhase += this.horizontalSpeed * dt * 1.6;
 

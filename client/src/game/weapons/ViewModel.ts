@@ -9,8 +9,8 @@ import {
   Vector3,
   type PerspectiveCamera,
 } from "three";
-import { WEAPON_ORDER, type WeaponId } from "@zombies/shared";
-import { buildGun, type GunModel } from "./gunModels.ts";
+import { WEAPON_ORDER, type SkinDef, type WeaponId } from "@zombies/shared";
+import { armMaterials, buildGun, type GunModel } from "./gunModels.ts";
 
 /**
  * The weapon is modeled at real size but drawn scaled down close to the camera, which
@@ -18,6 +18,11 @@ import { buildGun, type GunModel } from "./gunModels.ts";
  */
 const VIEW_SCALE = 0.35;
 const FLASH_TIME = 0.05;
+/** Shares of the reload: the spent capsule drops out, the hand fetches a new one, it slides in. */
+const CAPSULE_OUT = 0.35;
+const CAPSULE_IN = 0.55;
+const CAPSULE_SEATED = 0.9;
+const CAPSULE_DROP = 0.12;
 
 export interface ViewModelPose {
   aiming: boolean;
@@ -29,15 +34,18 @@ export interface ViewModelPose {
   lookDY: number;
   /** 0..1 while reloading, otherwise -1. */
   reload: number;
+  /** Share of the energy capsule left, 0..1. */
+  charge: number;
   dead: boolean;
 }
 
 export class ViewModel {
   private readonly root = new Group();
   private readonly guns = new Map<WeaponId, GunModel>();
+  private readonly arms = armMaterials();
   private current: WeaponId = "pistol";
   private readonly flash: Sprite;
-  private readonly flashLight = new PointLight("#ffd28a", 0, 6, 2);
+  private readonly flashLight = new PointLight("#ffffff", 0, 6, 2);
   private flashTimer = 0;
   private kick = 0;
   private aimT = 0;
@@ -52,18 +60,24 @@ export class ViewModel {
     this.root.scale.setScalar(VIEW_SCALE);
     camera.add(this.root);
     for (const id of WEAPON_ORDER) {
-      const gun = buildGun(id);
+      const gun = buildGun(id, this.arms);
       gun.group.visible = id === this.current;
       this.root.add(gun.group);
       this.guns.set(id, gun);
     }
 
     this.flash = new Sprite(
-      new SpriteMaterial({ map: flashTexture(), blending: AdditiveBlending, depthWrite: false, transparent: true, color: "#ffd9a0" }),
+      new SpriteMaterial({ map: flashTexture(), blending: AdditiveBlending, depthWrite: false, transparent: true }),
     );
     this.flash.visible = false;
     this.root.add(this.flash);
     this.root.add(this.flashLight);
+  }
+
+  /** Dresses the arms in the sleeves and gloves of the player's skin. */
+  setArms(skin: SkinDef) {
+    this.arms.sleeve.color.set(skin.sleeve);
+    this.arms.glove.color.set(skin.glove);
   }
 
   get aimProgress(): number {
@@ -81,6 +95,9 @@ export class ViewModel {
   fire() {
     this.kick = Math.min(1.5, this.kick + 1);
     this.flashTimer = FLASH_TIME;
+    const { color } = this.guns.get(this.current)!;
+    this.flash.material.color.set(color).multiplyScalar(2);
+    this.flashLight.color.set(color);
     this.flash.material.rotation = Math.random() * Math.PI * 2;
     this.flash.scale.setScalar(0.09 + Math.random() * 0.05);
   }
@@ -119,6 +136,16 @@ export class ViewModel {
       this.sprintT * 0.25 + reloadDip * 0.45,
     );
 
+    const r = pose.reload;
+    const out = r < 0 || r >= CAPSULE_SEATED ? 0 : r < CAPSULE_OUT ? r / CAPSULE_OUT : r < CAPSULE_IN ? 1 : (CAPSULE_SEATED - r) / (CAPSULE_SEATED - CAPSULE_IN);
+    gun.capsule.position.copy(gun.capsuleRest);
+    gun.capsule.position.y -= out * CAPSULE_DROP;
+    gun.capsule.visible = r < CAPSULE_OUT || r >= CAPSULE_IN;
+    gun.capsuleGlow.emissiveIntensity = r >= 0 ? (r < CAPSULE_IN ? 0.1 : 3) : 0.2 + 2.8 * pose.charge;
+    // The supporting hand lets go, reaches down for the new capsule and comes back with it.
+    const reach = r < 0 ? 0 : Math.sin(Math.PI * Math.min(1, r / CAPSULE_SEATED));
+    gun.supportArm?.position.set(-reach * 0.05, -reach * 0.16, reach * 0.1);
+
     this.flashTimer -= dt;
     const flashing = this.flashTimer > 0;
     this.flash.visible = flashing;
@@ -137,9 +164,9 @@ function flashTexture(): CanvasTexture {
   const ctx = canvas.getContext("2d")!;
   const c = size / 2;
   const gradient = ctx.createRadialGradient(c, c, 0, c, c, c);
-  gradient.addColorStop(0, "rgba(255,255,240,1)");
-  gradient.addColorStop(0.25, "rgba(255,210,120,0.9)");
-  gradient.addColorStop(1, "rgba(255,120,20,0)");
+  gradient.addColorStop(0, "rgba(255,255,255,1)");
+  gradient.addColorStop(0.25, "rgba(255,255,255,0.75)");
+  gradient.addColorStop(1, "rgba(255,255,255,0)");
   ctx.fillStyle = gradient;
   ctx.beginPath();
   for (let i = 0; i < 12; i++) {

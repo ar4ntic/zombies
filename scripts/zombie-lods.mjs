@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Adds simplified level-of-detail meshes to the zombie characters in client/public/assets/characters.
+// Player skins (player_*.glb) are left alone: only a few are ever on screen, always at full detail.
 // Each LOD is a simplified index buffer over the body mesh's vertices, bound to the same skin and
 // named "<mesh>_LOD1", "<mesh>_LOD2". Re-running replaces existing LODs. No Meshy API calls.
 import { readdirSync } from "node:fs";
@@ -53,7 +54,7 @@ function simplify(doc, prim, ratio) {
 
 const triangles = (mesh) => mesh.listPrimitives().reduce((n, p) => n + (p.getIndices()?.getCount() ?? 0) / 3, 0);
 
-for (const file of readdirSync(dir).filter((f) => f.endsWith(".glb"))) {
+for (const file of readdirSync(dir).filter((f) => f.endsWith(".glb") && !f.startsWith("player_"))) {
   const path = join(dir, file);
   const doc = await io.read(path);
   const nodes = doc.getRoot().listNodes();

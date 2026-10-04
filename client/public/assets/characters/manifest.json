@@ -16,6 +16,16 @@
     "runner": ["zombie_jogger", "zombie_teen"],
     "brute": ["zombie_wrestler"]
   },
+  "players": {
+    "clips": {
+      "idle": "Idle",
+      "aim": "Combat_Stance",
+      "walk": "Walk_Forward_While_Shooting",
+      "run": "Run_and_Shoot",
+      "knockedOut": "Knock_Down",
+      "cheer": "Victory_Cheer"
+    }
+  },
   "height": 1.8,
   "facing": "+Z"
 }

@@ -1,11 +1,16 @@
-import { MAX_PLAYERS, isDifficulty, settingsLabel, type DifficultyId } from "@zombies/shared";
+import { MAX_PLAYERS, settingsLabel, type DifficultyId, type EnergyMode, type GameState } from "@zombies/shared";
 import type { Game } from "../game/Game.ts";
+import { characterPicker, loadSkinChoice, saveSkinChoice, skinAvatar } from "./CharacterPicker.ts";
 import { copyText } from "./clipboard.ts";
-import { saveSettings, settingsSelectors } from "./Menu.ts";
+import { saveSettings, settingChange, settingValue, settingsSelectors, type GameSettings } from "./Menu.ts";
 import { selectSegment } from "./segmented.ts";
 
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+function roundSettings(state: GameState): GameSettings {
+  return { difficulty: state.difficulty as DifficultyId, minutes: state.duration / 60, energy: state.energy as EnergyMode };
 }
 
 /** Team session waiting room: invite friends, pick settings, host starts the round. */
@@ -35,11 +40,13 @@ export class Lobby {
           <button type="button" data-action="copyLink">Copy link</button>
         </div>
         <button type="button" data-action="share" ${"share" in navigator ? "" : "hidden"}>Share invite</button>
-        <div data-ref="hostSettings">${settingsSelectors({ difficulty: state.difficulty as DifficultyId, minutes: state.duration / 60 })}</div>
+        <div data-ref="hostSettings">${settingsSelectors(roundSettings(state))}</div>
         <p class="settings-tag" data-ref="settings"></p>
+        <div data-ref="picker" hidden></div>
         <p class="hint" data-ref="hint"></p>
         <div class="buttons">
           <button type="button" class="primary" data-ref="start" data-action="start">Start game</button>
+          <button type="button" data-ref="character" data-action="character">Change character</button>
           <button type="button" data-action="leave">Leave</button>
         </div>
       </div>
@@ -49,6 +56,12 @@ export class Lobby {
       </aside>
     `;
     for (const node of this.el.querySelectorAll<HTMLElement>("[data-ref]")) this.$[node.dataset.ref!] = node;
+    this.$.picker!.append(
+      characterPicker(loadSkinChoice(), (skin) => {
+        saveSkinChoice(skin);
+        game.changeSkin(skin);
+      }),
+    );
     this.el.addEventListener("click", (event) => this.click(event, code, link));
   }
 
@@ -56,7 +69,11 @@ export class Lobby {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button");
     if (!button) return;
     const group = button.closest<HTMLElement>(".segmented");
-    if (group) return this.changeSetting(group.dataset.setting!, button.dataset.value!);
+    if (group) {
+      const change = settingChange(group.dataset.setting, button.dataset.value!);
+      if (change) this.game.changeSettings(change);
+      return;
+    }
     switch (button.dataset.action) {
       case "copyLink":
         return void copyText(button, link);
@@ -64,15 +81,17 @@ export class Lobby {
         return void copyText(button, code);
       case "share":
         return void navigator.share({ title: "Zombie Breakout", text: `Join my Zombie Breakout team! Code ${code}`, url: link }).catch(() => {});
+      case "character": {
+        const picker = this.$.picker!;
+        picker.hidden = !picker.hidden;
+        button.textContent = picker.hidden ? "Change character" : "Done";
+        return;
+      }
       case "start":
         return this.game.startRound();
       case "leave":
         return this.game.leave();
     }
-  }
-
-  private changeSetting(setting: string, value: string) {
-    this.game.changeSettings(setting === "difficulty" && isDifficulty(value) ? { difficulty: value } : { minutes: Number(value) });
   }
 
   update() {
@@ -84,12 +103,11 @@ export class Lobby {
 
     this.$.hostSettings!.hidden = !isHost;
     this.$.start!.hidden = !isHost;
-    for (const group of this.el.querySelectorAll<HTMLElement>(".segmented")) {
-      selectSegment(group, group.dataset.setting === "difficulty" ? state.difficulty : String(state.duration / 60));
-    }
+    const settings = roundSettings(state);
+    for (const group of this.el.querySelectorAll<HTMLElement>(".segmented")) selectSegment(group, settingValue(group.dataset.setting, settings));
     this.$.settings!.hidden = isHost;
-    const label = settingsLabel(state.difficulty, state.duration);
-    if (isHost && this.cache.get(this.$.settings!) !== label) saveSettings({ difficulty: state.difficulty as DifficultyId, minutes: state.duration / 60 });
+    const label = settingsLabel(state.difficulty, state.duration, state.energy);
+    if (isHost && this.cache.get(this.$.settings!) !== label) saveSettings(settings);
     this.set("settings", label);
     this.set(
       "hint",
@@ -101,7 +119,7 @@ export class Lobby {
       [...state.players.entries()]
         .map(
           ([id, p]) =>
-            `<li class="${id === me ? "me" : ""}"><span class="name">${escapeHtml(p.name)}</span>` +
+            `<li class="${id === me ? "me" : ""}">${skinAvatar(p.skin)}<span class="name">${escapeHtml(p.name)}</span>` +
             `${id === state.hostId ? `<span class="tag host">Host</span>` : ""}${id === me ? `<span class="tag">you</span>` : ""}</li>`,
         )
         .join(""),

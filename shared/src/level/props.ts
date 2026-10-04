@@ -1,5 +1,13 @@
+export interface PropBounds {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  height: number;
+}
+
 /** Ground-plane bounds of prop models (from their glTF bounding boxes) that block movement. */
-export const PROP_BOUNDS: Record<string, { minX: number; maxX: number; minZ: number; maxZ: number; height: number }> = {
+export const PROP_BOUNDS: Record<string, PropBounds> = {
   barrel_03: { minX: -0.32, maxX: 0.32, minZ: -0.32, maxZ: 0.32, height: 0.93 },
   concrete_road_barrier: { minX: -0.77, maxX: 0.77, minZ: -0.29, maxZ: 0.34, height: 0.82 },
   covered_car: { minX: -0.85, maxX: 0.94, minZ: -2.17, maxZ: 2.21, height: 1.41 },
@@ -11,4 +19,13 @@ export const PROP_BOUNDS: Record<string, { minX: number; maxX: number; minZ: num
   utility_box_01: { minX: -0.26, maxX: 0.26, minZ: -0.21, maxZ: 0.22, height: 1.12 },
   wooden_crate_02: { minX: -0.26, maxX: 0.26, minZ: -0.58, maxZ: 0.58, height: 0.45 },
   wooden_picnic_table: { minX: -1.12, maxX: 1.12, minZ: -1.5, maxZ: 1.52, height: 0.75 },
+};
+
+/** Props whose top is stepped get one box per level instead of their bounding box, so players can climb them. */
+export const PROP_PARTS: Record<string, PropBounds[]> = {
+  covered_car: [
+    { minX: -0.85, maxX: 0.94, minZ: -2.17, maxZ: -1.45, height: 0.95 },
+    { minX: -0.85, maxX: 0.94, minZ: -1.45, maxZ: 0.45, height: 1.41 },
+    { minX: -0.85, maxX: 0.94, minZ: 0.45, maxZ: 2.21, height: 0.95 },
+  ],
 };
