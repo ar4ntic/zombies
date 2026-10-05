@@ -22,7 +22,7 @@ const game = new Game(canvas, ui, graphics, params.has("debug"));
 game.setSensitivity(loadSensitivity());
 if (debug) Object.assign(window, { game });
 const loading = showMessage(ui, "Loading...");
-const loaded = game.load().finally(() => loading.remove());
+void game.load().finally(() => loading.remove());
 
 game.onLeave = () => {
   history.replaceState(null, "", `/${location.search}`);
@@ -43,8 +43,10 @@ async function mailLink(): Promise<MenuStart> {
 async function play(invite: string | null, error?: string, start: MenuStart = {}) {
   const { name, choice, settings, skin } = await showMenu(ui, game, invite, error, start);
   game.sound.unlock();
-  await loaded;
+  // The menu is usable before the level and the zombies have finished loading.
+  const waiting = showMessage(ui, "Loading...");
   try {
+    await game.ready.finally(() => waiting.remove());
     await game.connect(name, skin, choice, settings, testDuration);
     if (choice.mode !== "solo") history.replaceState(null, "", `/join/${game.network.sessionCode}${location.search}`);
     if (!game.inLobby) game.input.lock();
