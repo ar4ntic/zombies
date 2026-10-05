@@ -1,7 +1,7 @@
 export const TICK_RATE = 20;
 export const TICK_MS = 1000 / TICK_RATE;
 
-export const MAX_PLAYERS = 4;
+export const MAX_PLAYERS = 10;
 /** How long a dropped player keeps their spot and can reconnect. */
 export const RECONNECT_GRACE_SECONDS = 30;
 
@@ -31,8 +31,12 @@ export const WAVE_COUNTDOWN_SECONDS = 3;
 export const MIN_SPAWN_INTERVAL = 0.3;
 export const COMBO_WINDOW = 3;
 export const MAX_COMBO = 5;
-/** Hard cap for every difficulty, for client performance. */
+/** Cap of a solo round for every difficulty, for client performance. */
 export const MAX_ZOMBIES_ALIVE = 40;
+/** Each player beyond the first raises the number of zombies alive at once by this many. */
+export const EXTRA_ZOMBIES_ALIVE_PER_PLAYER = 2;
+/** Share of a weapon's damage a teammate takes when friendly fire is on. */
+export const FRIENDLY_FIRE_DAMAGE = 0.5;
 /** Extra zombies per wave for each player beyond the first. */
 export const EXTRA_ZOMBIES_PER_PLAYER = 0.6;
 /** Horizontal distance at which a pickup on the ground is collected. */

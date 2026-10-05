@@ -7,6 +7,7 @@ import {
   WAVE_COUNTDOWN_SECONDS,
   buildColliders,
   skinDef,
+  type Box,
   type EnergyMode,
   type GameState,
   type PlayerState,
@@ -19,18 +20,19 @@ import { PerfOverlay } from "../ui/PerfOverlay.ts";
 import type { GameSettings } from "../ui/Menu.ts";
 import { Bolts } from "./fx/Bolts.ts";
 import { Particles } from "./fx/Particles.ts";
+import { Scorches } from "./fx/Scorches.ts";
 import { Sound } from "./fx/Sound.ts";
 import { Input } from "./Input.ts";
 import { Pickups } from "./Pickups.ts";
 import { PlayerController } from "./PlayerController.ts";
 import { RemotePlayers } from "./RemotePlayers.ts";
 import { ViewModel } from "./weapons/ViewModel.ts";
-import { BOLTS, WeaponSystem } from "./weapons/WeaponSystem.ts";
+import { BOLTS, SURFACE_SEARCH, WeaponSystem } from "./weapons/WeaponSystem.ts";
 import { World } from "./World.ts";
 import { ZombieManager } from "./zombies/ZombieManager.ts";
 import { preloadCast } from "./zombies/cast.ts";
 
-export type SessionChoice = { mode: "solo" } | { mode: "create" } | { mode: "join"; code: string };
+export type SessionChoice = { mode: "solo" } | { mode: "create"; private: boolean } | { mode: "join"; code: string };
 
 const LEVEL = PARKING_LOT;
 const RESULTS_DELAY_MS = 4500;
@@ -60,6 +62,7 @@ export class Game {
   private readonly pickups: Pickups;
   private readonly particles: Particles;
   private readonly bolts: Bolts;
+  private readonly scorches: Scorches;
   private readonly viewModel: ViewModel;
   private readonly timer = new Timer();
   private hud?: Hud;
@@ -101,6 +104,7 @@ export class Game {
     this.pickups = new Pickups(scene);
     this.particles = new Particles(scene);
     this.bolts = new Bolts(scene);
+    this.scorches = new Scorches(scene);
     this.zombies = new ZombieManager(scene, this.camera, this.particles);
     this.renderer.onWorldSettings = (settings) => {
       this.world.applyGraphics(settings);
@@ -117,10 +121,15 @@ export class Game {
       colliders: this.colliders,
       particles: this.particles,
       bolts: this.bolts,
+      scorches: this.scorches,
       sound: this.sound,
+      surface: (origin, dir, near, far, point, normal) => this.world.surfaceHit(origin, dir, near, far, point, normal),
+      mates: (origin, dir, maxDistance) => this.remotes.raycast(origin, dir, maxDistance),
+      friendlyFire: () => !!this.state?.friendlyFire,
       onShoot: (msg) => this.network.sendShoot(msg),
       onSwitch: (weapon) => this.network.sendWeapon(weapon),
       onHit: (head) => this.hud?.hitmarker(head),
+      onHitMate: (id) => this.hud?.notice(`Careful! You hit ${this.state?.players.get(id)?.name ?? "a teammate"}`),
     });
     document.addEventListener("pointerlockchange", () => {
       if (!this.input.locked) this.finishLookTest();
@@ -152,6 +161,15 @@ export class Game {
     if (state.phase === "playing" && state.waveIn > 0) return { wave: state.wave + 1, seconds: Math.ceil(state.waveIn) };
     if (state.phase === "countdown" && state.timer > 0 && state.timer <= WAVE_COUNTDOWN_SECONDS) return { wave: 1, seconds: Math.ceil(state.timer) };
     return undefined;
+  }
+
+  /** Static obstacles of the level, for the map. */
+  get obstacles(): Box[] {
+    return this.colliders;
+  }
+
+  get arenaHalfSize(): number {
+    return LEVEL.halfSize;
   }
 
   get aimProgress(): number {
@@ -231,8 +249,15 @@ export class Game {
       pickupRemoved: (id) => this.pickups.remove(id),
       shot: (e) => {
         const from = new Vector3(...e.origin);
+        const end = new Vector3(...e.end);
         const bolt = BOLTS[e.weapon];
-        this.bolts.spawn(from, new Vector3(...e.end), bolt.color, bolt.width * 1.5, bolt.length);
+        // A bolt that ended on the ground, a wall or an object burns it, as the shooter saw it.
+        const dir = end.clone().sub(from);
+        const length = dir.length();
+        const point = new Vector3();
+        const normal = new Vector3();
+        const marks = length > 0.01 && this.world.surfaceHit(from, dir.divideScalar(length), length - SURFACE_SEARCH.behind, length + SURFACE_SEARCH.behind, point, normal);
+        this.bolts.spawn(from, end, bolt.color, bolt.width * 1.5, bolt.length, marks ? () => this.scorches.add(point, normal, bolt.color, bolt.scorch) : undefined);
         this.remotes.shot(e.by);
         const distance = from.distanceTo(this.camera.position);
         this.sound.shot(e.weapon, Math.max(0.08, 1 - distance / 50) * 0.6);
@@ -267,7 +292,8 @@ export class Game {
     if (choice.mode === "join") {
       await this.network.joinSession(choice.code, { name, skin }, events);
     } else {
-      await this.network.createSession({ name, skin, solo: this.solo, ...settings, duration: testDuration }, events);
+      const isPrivate = choice.mode === "create" && choice.private;
+      await this.network.createSession({ name, skin, solo: this.solo, private: isPrivate, ...settings, duration: testDuration }, events);
     }
     this.hud = new Hud(this.ui, this);
   }
@@ -299,6 +325,7 @@ export class Game {
     this.zombies.clear();
     this.remotes.clear();
     this.pickups.clear();
+    this.scorches.clear();
     this.spawned = false;
     this.lastPhase = "";
     this.lastWave = 0;
@@ -351,6 +378,7 @@ export class Game {
     this.pickups.update(dt, this.elapsed);
     this.particles.update(dt);
     this.bolts.update(dt);
+    this.scorches.update(dt);
     this.sendPosition(dt);
     if (active) this.collectEnergy(dt);
     this.hud?.update(dt);

@@ -52,7 +52,7 @@ const MODELS = [
 ];
 
 const credits = [];
-const MESHY_CREDIT = "Zombie characters and player skins generated with Meshy (https://www.meshy.ai)";
+const MESHY_CREDIT = "Zombie characters, zombie animals and player skins generated with Meshy (https://www.meshy.ai)";
 
 async function download(url, dest) {
   if (existsSync(dest) && !force) return;

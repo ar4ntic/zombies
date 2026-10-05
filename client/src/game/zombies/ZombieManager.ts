@@ -15,9 +15,12 @@ import {
   type Scene,
   type WebGLRenderer,
 } from "three";
-import { ZOMBIES, type ZombieState } from "@zombies/shared";
+import { ZOMBIES, type ZombieState, type ZombieType } from "@zombies/shared";
 import type { Particles } from "../fx/Particles.ts";
+import { rayCylinder, raySphere } from "../rays.ts";
+import { AnimalView } from "./AnimalView.ts";
 import type { CharacterTemplate } from "./cast.ts";
+import type { ZombieBody } from "./ZombieBody.ts";
 import { ZombieView } from "./ZombieView.ts";
 
 const DEATH_COLOR = new Color("#8dff6e");
@@ -62,14 +65,14 @@ export interface ZombieRayHit {
 }
 
 interface Entry {
-  view?: ZombieView;
+  view?: ZombieBody;
   removed: boolean;
   discarded?: boolean;
 }
 
 export class ZombieManager {
   private readonly entries = new Map<string, Entry>();
-  private readonly dying: ZombieView[] = [];
+  private readonly dying: ZombieBody[] = [];
   private readonly tmp = new Vector3();
   private readonly frustum = new Frustum();
   private readonly projScreen = new Matrix4();
@@ -115,7 +118,8 @@ export class ZombieManager {
   add(id: string, state: ZombieState) {
     const entry: Entry = { removed: false };
     this.entries.set(id, entry);
-    void ZombieView.create(this.scene, id, state).then((view) => {
+    const quadruped = ZOMBIES[state.type as ZombieType]?.body === "quadruped";
+    void (quadruped ? AnimalView : ZombieView).create(this.scene, id, state).then((view: ZombieBody) => {
       entry.view = view;
       if (entry.discarded) view.dispose();
       else if (entry.removed) this.startDeath(view);
@@ -148,7 +152,7 @@ export class ZombieManager {
     this.entries.get(id)?.view?.hit(from, head);
   }
 
-  private startDeath(view: ZombieView) {
+  private startDeath(view: ZombieBody) {
     view.die();
     this.dying.push(view);
   }
@@ -199,7 +203,7 @@ export class ZombieManager {
     }
   }
 
-  private emitDissolve(view: ZombieView, burst: boolean, dt: number) {
+  private emitDissolve(view: ZombieBody, burst: boolean, dt: number) {
     const s = view.scale;
     if (burst) {
       this.tmp.copy(view.position).setY(0.35 * s);
@@ -239,31 +243,4 @@ export class ZombieManager {
     }
     return best;
   }
-}
-
-function raySphere(o: Vector3, d: Vector3, cx: number, cy: number, cz: number, r: number): number {
-  const ox = o.x - cx;
-  const oy = o.y - cy;
-  const oz = o.z - cz;
-  const b = ox * d.x + oy * d.y + oz * d.z;
-  const c = ox * ox + oy * oy + oz * oz - r * r;
-  const disc = b * b - c;
-  if (disc < 0) return -1;
-  const t = -b - Math.sqrt(disc);
-  return t >= 0 ? t : -1;
-}
-
-function rayCylinder(o: Vector3, d: Vector3, cx: number, cz: number, r: number, h: number): number {
-  const ox = o.x - cx;
-  const oz = o.z - cz;
-  const a = d.x * d.x + d.z * d.z;
-  if (a < 1e-9) return -1;
-  const b = ox * d.x + oz * d.z;
-  const c = ox * ox + oz * oz - r * r;
-  const disc = b * b - a * c;
-  if (disc < 0) return -1;
-  const t = (-b - Math.sqrt(disc)) / a;
-  if (t < 0) return -1;
-  const y = o.y + d.y * t;
-  return y >= 0 && y <= h ? t : -1;
 }

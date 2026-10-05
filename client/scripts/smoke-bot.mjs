@@ -145,10 +145,13 @@ async function checkSessions() {
   await sleep(300);
   if ((await api(`/api/sessions/${host.code}`)).status !== 404) failures.push("empty session still exists");
 
-  const custom = await Session.create({ name: "Host", difficulty: "nightmare", minutes: 10, energy: "infinite" });
+  const custom = await Session.create({ name: "Host", difficulty: "nightmare", minutes: 10, energy: "infinite", friendlyFire: true });
   await sleep(400);
   const { state } = custom;
-  if (state.difficulty !== "nightmare" || state.duration !== 600 || state.energy !== "infinite") failures.push("custom settings not applied");
+  if (state.difficulty !== "nightmare" || state.duration !== 600 || state.energy !== "infinite" || !state.friendlyFire) failures.push("custom settings not applied");
+  if (host.state.friendlyFire || host.state.private) failures.push("friendly fire or private on by default");
+  const anonymousPrivate = await api("/api/sessions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Host", private: true }) });
+  if (anonymousPrivate.status !== 403) failures.push(`private session created without an account (HTTP ${anonymousPrivate.status})`);
   console.log(`sessions: clamped=normal/300s, nightmare/10min star=${state.scoreStar}, host transfer ok=${!failures.length}`);
   custom.leave();
 }
@@ -167,6 +170,16 @@ function accountClient() {
     return { status: res.status, body: await res.json().catch(() => null) };
   };
   return { call, cookie: () => cookie };
+}
+
+/** The token of the last link the Worker logged as mailed to an address; the log is written with a delay. */
+async function mailedToken(email, page) {
+  for (const end = Date.now() + 3000; Date.now() < end; await sleep(100)) {
+    const mails = readFileSync(mailLog, "utf8").split(`[mail] to ${email}:`);
+    const token = mails.length > 1 ? mails.at(-1).match(new RegExp(`/${page}#([\\w-]{20,})\\s`))?.[1] : undefined;
+    if (token) return token;
+  }
+  return undefined;
 }
 
 async function checkAccounts() {
@@ -194,7 +207,7 @@ async function checkAccounts() {
 
   let verified = false;
   if (mailLog) {
-    const token = [...readFileSync(mailLog, "utf8").matchAll(/\/verify#([\w-]+)/g)].at(-1)?.[1];
+    const token = await mailedToken(email, "verify");
     const confirmed = await account.call("POST", "verify", { token });
     verified = confirmed.status === 200 && confirmed.body?.account?.verified === true;
     expect("email confirmation failed", verified);
@@ -205,18 +218,72 @@ async function checkAccounts() {
     const mine = await check(account.cookie());
     expect("nickname check wrong", state.protected && !state.mine && mine.protected && mine.mine);
   }
+  // Only a confirmed account plays as a member, under its own nickname.
   const owner = await Session.join(host.code, "SomethingElse", undefined, undefined, account.cookie());
   await sleep(300);
-  expect("account player not named after the account", host.state.players.get(owner.sessionId)?.name === nickname);
+  const seen = host.state.players.get(owner.sessionId);
+  expect(`account player wrong: ${seen?.name}, member=${seen?.member}`, seen?.member === verified && seen?.name === (verified ? nickname : "SomethingElse"));
   owner.leave();
   host.leave();
 
+  const privateSession = await fetch(`${url}/api/sessions`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: account.cookie() },
+    body: JSON.stringify({ name: nickname, private: true }),
+  });
+  expect(`private session for ${verified ? "a member refused" : "an unconfirmed account created"}`, privateSession.status === (verified ? 201 : 403));
+  if (privateSession.status === 201) {
+    const { code } = await privateSession.json();
+    const member = await Session.join(code, nickname, undefined, undefined, account.cookie());
+    const stranger = await Session.join(code, "Stranger").then((s) => s.leave() ?? "joined", () => "refused");
+    const info = await api(`/api/sessions/${code}`);
+    expect(`private session open to strangers (${stranger}, private=${info.body?.private})`, stranger === "refused" && info.body?.private === true && member.state.private);
+    member.leave();
+  }
+  console.log(`accounts: register, nickname, ${verified ? "confirmed + protected, private session" : "confirmation skipped (no --mail-log)"}, ok=${failures.length === before}`);
+  return { account, email, password, nickname, verified, check };
+}
+
+/** Logs the test account out and in again and deletes it. */
+async function finishAccounts({ account, email, password, nickname, check }) {
+  const before = failures.length;
+  const expect = (what, ok) => ok || failures.push(`accounts: ${what}`);
   expect("logout failed", (await account.call("POST", "logout")).status === 200 && (await account.call("GET", "me")).body?.account === null);
   expect("wrong password accepted", (await account.call("POST", "login", { email, password: `${password}!` })).status === 401);
   expect("login failed", (await account.call("POST", "login", { email, password })).body?.account?.nickname === nickname);
   expect("account deleted without the password", (await account.call("DELETE", "me", { password: "wrong-password" })).status === 401);
   expect("account not deleted", (await account.call("DELETE", "me", { password })).status === 200 && !(await check()).protected);
-  console.log(`accounts: register, nickname, ${verified ? "confirmed + protected" : "confirmation skipped (no --mail-log)"}, login, delete, ok=${failures.length === before}`);
+  console.log(`accounts: logout, login, delete, ok=${failures.length === before}`);
+}
+
+/** Fills a team session to the limit and checks friendly fire in it. */
+async function checkBigTeam() {
+  const before = failures.length;
+  const host = await Session.create({ name: "P1", difficulty: "easy", minutes: 1, friendlyFire: true });
+  const guests = [];
+  for (let i = 2; i <= 10; i++) guests.push(await Session.join(host.code, `P${i}`));
+  await waitFor("ten players", () => host.state.players.size === 10);
+  const info = await api(`/api/sessions/${host.code}`);
+  const eleventh = await Session.join(host.code, "P11").then((s) => s.leave() ?? "joined", () => "refused");
+  if (!info.body?.full || eleventh !== "refused") failures.push(`team of ten not full (full=${info.body?.full}, eleventh ${eleventh})`);
+  const places = new Set([...host.state.players.values()].map((p) => `${p.x.toFixed(1)},${p.z.toFixed(1)}`));
+  if (places.size !== 10) failures.push(`players share spawn points (${places.size} places for 10 players)`);
+
+  host.send("start", {});
+  const shooter = guests[0];
+  const victim = () => host.state.players.get(host.sessionId);
+  await waitFor("big team round", () => host.state.phase === "playing" && victim().protection === 0, 9000);
+  const me = shooter.state.players.get(shooter.sessionId);
+  const shoot = (target) => shooter.send("shoot", { weapon: "rifle", origin: [me.x, 1.5, me.z], end: [victim().x, 1.5, victim().z], hitPlayer: target });
+  shoot("nobody");
+  await sleep(400);
+  const untouched = victim().hp;
+  shoot(host.sessionId);
+  await waitFor("friendly fire damage", () => victim().hp < untouched, 2000);
+  if (untouched !== 100 || victim().hp !== 88) failures.push(`friendly fire damage wrong: ${untouched} -> ${victim().hp}`);
+  if (me.hits !== 0) failures.push("a hit on a teammate counted for accuracy");
+  console.log(`big team: 10 players, 11th ${eleventh}, friendly fire ${untouched} -> ${victim().hp}, ok=${failures.length === before}`);
+  for (const s of [...guests, host]) s.leave();
 }
 
 async function checkTeam() {
@@ -281,7 +348,8 @@ function fire(session) {
   if (best) session.send("shoot", { weapon: "rifle", origin: [me.x, 1.5, me.z], end: [best.z.x, 1.5, best.z.z], hit: { zombie: best.id, head: false } });
 }
 
-async function checkLobby() {
+/** `member` is the test account; when it is confirmed it plays as the guest, to check the members leaderboard. */
+async function checkLobby(member) {
   const before = failures.length;
   const host = await Session.create({ name: "Host", difficulty: "normal", minutes: 3 });
   const hostErrors = [];
@@ -292,7 +360,7 @@ async function checkLobby() {
   const info = await api(`/api/sessions/${host.code}`);
   if (info.body?.phase !== "lobby") failures.push(`session info phase ${info.body?.phase}`);
 
-  const guest = await Session.join(host.code, "Guest");
+  const guest = await Session.join(host.code, "Guest", undefined, undefined, member.verified ? member.account.cookie() : undefined);
   const guestErrors = [];
   guest.onMessage("error", (e) => guestErrors.push(e.message));
   await waitFor("guest in the lobby", () => lobby(guest) && guest.state.players.size === 2);
@@ -316,6 +384,12 @@ async function checkLobby() {
   const countdown = guest.state.timer;
   if (countdown > 3) failures.push(`lobby countdown ${countdown}s`);
   await waitFor("round start", () => guest.state.phase === "playing", 5000);
+  // Without friendly fire a shot at a teammate does nothing.
+  await waitFor("spawn protection to end", () => host.state.players.get(host.sessionId).protection === 0, 5000);
+  const mate = guest.state.players.get(host.sessionId);
+  guest.send("shoot", { weapon: "rifle", origin: [mate.x + 1, 1.5, mate.z], end: [mate.x, 1.5, mate.z], hitPlayer: host.sessionId });
+  await sleep(400);
+  if (host.state.players.get(host.sessionId).hp !== 100) failures.push("teammate hurt with friendly fire off");
 
   const kills = new Map([[host, 0], [guest, 0]]);
   const hits = new Map([[host, 0], [guest, 0]]);
@@ -336,6 +410,21 @@ async function checkLobby() {
   }
   if (host.state.pickups.size > 0 && [...host.state.pickups.values()].some((p) => p.kind === "energy")) failures.push("energy capsules in an infinite round");
 
+  // Players without an account are ranked on the public board, members on their own.
+  await sleep(1500);
+  const board = async (kind, cookie) =>
+    (await (await fetch(`${url}/api/leaderboard?difficulty=easy&minutes=1&energy=infinite&board=${kind}&limit=50`, { headers: cookie ? { cookie } : {} })).json()).entries ?? [];
+  const publicNames = (await board("public")).map((e) => e.nickname);
+  if (!publicNames.includes("Host")) failures.push("host missing on the public leaderboard");
+  if (member.verified) {
+    const members = await board("members", member.account.cookie());
+    const mine = members.find((e) => e.me);
+    if (mine?.nickname !== member.nickname) failures.push(`member not on the members leaderboard (${JSON.stringify(mine)})`);
+    if (publicNames.includes(member.nickname)) failures.push("member listed on the public leaderboard");
+  } else if ((await board("members")).some((e) => e.nickname === "Guest")) {
+    failures.push("player without an account on the members leaderboard");
+  }
+
   guest.send("restart", {});
   await sleep(500);
   if (guest.state.phase !== "ended") failures.push("non-host restart accepted");
@@ -354,9 +443,11 @@ async function checkLobby() {
 }
 
 await checkSessions();
-await checkAccounts();
+const member = await checkAccounts();
 await checkTeam();
-await checkLobby();
+await checkBigTeam();
+await checkLobby(member);
+await finishAccounts(member);
 
 const playerId = crypto.randomUUID();
 const room = await Session.create({ name: "Bot", playerId, solo: true, difficulty, energy, ...(minutes ? { minutes } : { duration }) });

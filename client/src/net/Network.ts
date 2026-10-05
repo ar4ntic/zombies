@@ -21,7 +21,8 @@ import {
   type ZombieHitEvent,
   type ZombieState,
 } from "@zombies/shared";
-import { createSession, getSession, playerId } from "./api.ts";
+import { accountApi } from "./account.ts";
+import { UserError, createSession, getSession, playerId } from "./api.ts";
 
 const RECONNECT_DELAY_MS = 1000;
 const LEAVE_CLOSE_CODE = 1000;
@@ -80,7 +81,13 @@ export class Network {
   async joinSession(code: string, options: JoinOptions, events: NetworkEvents) {
     code = code.toUpperCase();
     const info = await getSession(code);
-    if (!info?.exists || info.full) throw new Error("Session not found or full");
+    if (!info?.exists || info.full) throw new UserError("Session not found or full.");
+    if (info.private) {
+      const { account } = await accountApi.me();
+      if (!account?.verified || !account.nickname) {
+        throw new UserError("This is a private session. Log in with a confirmed account that has a nickname to join.");
+      }
+    }
     await this.open(code, options, events);
   }
 

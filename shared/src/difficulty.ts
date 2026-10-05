@@ -15,6 +15,8 @@ export interface DifficultyDef {
   waveSize: number;
   /** Multiplier on the number of brutes per wave. */
   brutes: number;
+  /** Multiplier on the number of zombie dogs and cats per wave; 0 keeps them out. */
+  animals: number;
   points: number;
   respawnSeconds: number;
   /** Multiplier on the per-minute star score, matching how many points good play earns at this difficulty. */
@@ -41,6 +43,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyDef> = {
     maxAlive: 18,
     waveSize: 0.75,
     brutes: 0.5,
+    animals: 0,
     points: 0.75,
     respawnSeconds: 3,
     starScale: 1.3,
@@ -57,6 +60,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyDef> = {
     maxAlive: 30,
     waveSize: 1,
     brutes: 1,
+    animals: 0.6,
     points: 1,
     respawnSeconds: 5,
     starScale: 1,
@@ -73,6 +77,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyDef> = {
     maxAlive: 36,
     waveSize: 1.25,
     brutes: 1.6,
+    animals: 1,
     points: 1.5,
     respawnSeconds: 6,
     starScale: 1,
@@ -89,6 +94,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyDef> = {
     maxAlive: 40,
     waveSize: 1.5,
     brutes: 2.5,
+    animals: 1.6,
     points: 2,
     respawnSeconds: 7,
     starScale: 0.65,
@@ -115,9 +121,10 @@ export function formatRoundLength(seconds: number): string {
   return seconds % 60 === 0 ? `${seconds / 60} min` : `${seconds} s`;
 }
 
-export function settingsLabel(difficulty: string, seconds: number, energy: string): string {
+export function settingsLabel(difficulty: string, seconds: number, energy: string, friendlyFire = false): string {
   const mode = ENERGY_MODES[energy as EnergyMode]?.label ?? energy;
-  return `${DIFFICULTIES[difficulty as DifficultyId]?.label ?? difficulty} · ${formatRoundLength(seconds)} · ${mode} energy`;
+  const label = `${DIFFICULTIES[difficulty as DifficultyId]?.label ?? difficulty} · ${formatRoundLength(seconds)} · ${mode} energy`;
+  return friendlyFire ? `${label} · Friendly fire` : label;
 }
 
 /** Team score needed for the second star. */

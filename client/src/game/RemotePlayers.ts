@@ -11,12 +11,16 @@ import {
   Sprite,
   SpriteMaterial,
   type Scene,
+  type Vector3,
 } from "three";
-import { skinDef, type PlayerState, type WeaponId } from "@zombies/shared";
+import { PLAYER_RADIUS, skinDef, type PlayerState, type WeaponId } from "@zombies/shared";
 import { PlayerView } from "./players/PlayerView.ts";
 import { loadSkin } from "./players/skins.ts";
+import { rayCylinder } from "./rays.ts";
 
 const SMOOTHING = 14;
+/** Height of the cylinder a shot hits a player in. */
+const BODY_HEIGHT = 1.8;
 
 interface Remote {
   state: PlayerState;
@@ -106,6 +110,17 @@ export class RemotePlayers {
   /** A remote player fired; their skin raises the weapon. */
   shot(id: string) {
     this.players.get(id)?.view?.shot();
+  }
+
+  /** The nearest standing player a ray hits, for friendly fire. */
+  raycast(origin: Vector3, dir: Vector3, maxDistance: number): { id: string; distance: number } | null {
+    let best: { id: string; distance: number } | null = null;
+    for (const [id, { state, root }] of this.players) {
+      if (state.dead) continue;
+      const t = rayCylinder(origin, dir, root.position.x, root.position.z, PLAYER_RADIUS, BODY_HEIGHT, root.position.y);
+      if (t >= 0 && t <= maxDistance && (!best || t < best.distance)) best = { id, distance: t };
+    }
+    return best;
   }
 
   remove(id: string) {

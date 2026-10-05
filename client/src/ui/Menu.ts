@@ -29,11 +29,13 @@ const NAME_KEY = "zombies.nickname";
 const DIFFICULTY_KEY = "zombies.difficulty";
 const MINUTES_KEY = "zombies.minutes";
 const ENERGY_KEY = "zombies.energy";
+const FRIENDLY_FIRE_KEY = "zombies.friendlyFire";
 
 export interface GameSettings {
   difficulty: DifficultyId;
   minutes: number;
   energy: EnergyMode;
+  friendlyFire: boolean;
 }
 
 export interface MenuResult {
@@ -51,6 +53,7 @@ function loadSettings(): GameSettings {
     difficulty: isDifficulty(difficulty) ? difficulty : DEFAULT_DIFFICULTY,
     minutes: isRoundMinutes(minutes) ? minutes : DEFAULT_ROUND_MINUTES,
     energy: isEnergyMode(energy) ? energy : DEFAULT_ENERGY_MODE,
+    friendlyFire: localStorage.getItem(FRIENDLY_FIRE_KEY) === "on",
   };
 }
 
@@ -58,6 +61,7 @@ export function saveSettings(settings: GameSettings) {
   localStorage.setItem(DIFFICULTY_KEY, settings.difficulty);
   localStorage.setItem(MINUTES_KEY, String(settings.minutes));
   localStorage.setItem(ENERGY_KEY, settings.energy);
+  localStorage.setItem(FRIENDLY_FIRE_KEY, settings.friendlyFire ? "on" : "off");
 }
 
 /** The round setting a click on one of the segmented controls of `settingsSelectors` stands for. */
@@ -69,13 +73,24 @@ export function settingChange(setting: string | undefined, value: string): Parti
       return isRoundMinutes(Number(value)) ? { minutes: Number(value) } : undefined;
     case "energy":
       return isEnergyMode(value) ? { energy: value } : undefined;
+    case "friendlyFire":
+      return { friendlyFire: value === "on" };
   }
   return undefined;
 }
 
 /** The selected value of each segmented control of `settingsSelectors`. */
 export function settingValue(setting: string | undefined, settings: GameSettings): string {
-  return setting === "difficulty" ? settings.difficulty : setting === "energy" ? settings.energy : String(settings.minutes);
+  switch (setting) {
+    case "difficulty":
+      return settings.difficulty;
+    case "energy":
+      return settings.energy;
+    case "friendlyFire":
+      return settings.friendlyFire ? "on" : "off";
+    default:
+      return String(settings.minutes);
+  }
 }
 
 export function settingsSelectors(settings: GameSettings): string {
@@ -88,11 +103,17 @@ export function settingsSelectors(settings: GameSettings): string {
       <span class="setting-label">Round length</span>
       ${segmented("minutes", ROUND_MINUTES.map((m) => [String(m), `${m} min`]), String(settings.minutes))}
     </div>
-    <div class="setting">
-      <span class="setting-label">Rifle energy</span>
-      ${segmented("energy", ENERGY_MODE_IDS.map((id) => [id, ENERGY_MODES[id].label]), settings.energy)}
-      <span class="setting-hint">Limited: collect the energy capsules lying around the arena.</span>
-    </div>`;
+    <div class="setting-pair">
+      <div class="setting">
+        <span class="setting-label">Rifle energy</span>
+        ${segmented("energy", ENERGY_MODE_IDS.map((id) => [id, ENERGY_MODES[id].label]), settings.energy)}
+      </div>
+      <div class="setting">
+        <span class="setting-label">Friendly fire</span>
+        ${segmented("friendlyFire", [["off", "Off"], ["on", "On"]], settings.friendlyFire ? "on" : "off")}
+      </div>
+    </div>
+    <span class="setting-hint">Limited energy: collect the capsules lying around the arena. Friendly fire: your shots also hurt teammates.</span>`;
 }
 
 /** What the menu opens with after following a link from an account mail. */
@@ -116,7 +137,7 @@ export function showMenu(
   panel.className = "menu";
   panel.innerHTML = `
     <div class="menu-main" data-view="main">
-      <h1>Zombie Breakout</h1>
+      <h1 class="brand"><img src="/logo.svg" alt="Zombie Breakout" width="560" height="160" /></h1>
       <p class="tagline">Clear the streets. Save the town.</p>
       <label>Your nickname
         <input name="nickname" maxlength="${NICKNAME_MAX_LENGTH}" autocomplete="off" placeholder="e.g. ShadowFox" />
@@ -128,6 +149,10 @@ export function showMenu(
         <button data-action="solo" class="primary">Single player</button>
         <button data-action="create">Create team session</button>
       </div>
+      <label class="check">
+        <input type="checkbox" name="private" disabled />
+        <span data-ref="privateLabel"></span>
+      </label>
       <div class="join">
         <input name="code" maxlength="${SESSION_CODE_LENGTH}" autocomplete="off" placeholder="Session code" />
         <button data-action="join">Join</button>
@@ -185,6 +210,8 @@ export function showMenu(
   // A logged-in account plays under its own nickname; everybody else types one.
   const accountPanel = panel.querySelector<HTMLElement>('[data-view="account"]')!;
   const accountButton = panel.querySelector<HTMLButtonElement>('[data-action="account"]')!;
+  const privateInput = panel.querySelector<HTMLInputElement>('input[name="private"]')!;
+  const privateLabel = panel.querySelector<HTMLElement>('[data-ref="privateLabel"]')!;
   let account: AccountInfo | null = null;
   const showAccount = (next: AccountInfo | null) => {
     account = next;
@@ -198,6 +225,12 @@ export function showMenu(
         : account.verified
           ? "✓ Protected nickname · Account"
           : "Confirm your email to protect this nickname · Account";
+    // Only members, i.e. confirmed accounts with a nickname, can open a private session and are ranked among members.
+    const member = !!account?.verified && !!account.nickname;
+    privateInput.disabled = !member;
+    if (!member) privateInput.checked = false;
+    privateLabel.textContent = member ? "Private team session: only confirmed accounts can join" : "Private team sessions need a confirmed account";
+    board.setBoard(member ? "members" : "public");
     showBoard();
   };
   const accountForms = accountView((next) => showAccount(next));
@@ -265,7 +298,7 @@ export function showMenu(
         if (code.length !== SESSION_CODE_LENGTH) return showError("Session codes have 6 characters.");
         choice = { mode: "join", code };
       } else {
-        choice = { mode: action as "solo" | "create" };
+        choice = action === "create" ? { mode: "create", private: privateInput.checked } : { mode: "solo" };
       }
       if (starting) return;
       starting = true;

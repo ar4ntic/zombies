@@ -2,6 +2,7 @@ import "./styles.css";
 import { isGraphicsSetting } from "./engine/Renderer.ts";
 import { Game } from "./game/Game.ts";
 import { accountApi } from "./net/account.ts";
+import { UserError } from "./net/api.ts";
 import { showMenu, showMessage, type MenuStart } from "./ui/Menu.ts";
 import { loadGraphics, loadSensitivity } from "./ui/Settings.ts";
 
@@ -49,10 +50,8 @@ async function play(invite: string | null, error?: string, start: MenuStart = {}
     if (!game.inLobby) game.input.lock();
   } catch (err) {
     console.error(err);
-    void play(
-      choice.mode === "join" ? choice.code : null,
-      choice.mode === "join" ? "Session not found or full." : "Could not reach the game server.",
-    );
+    const fallback = choice.mode === "join" ? "Could not join the session." : "Could not reach the game server.";
+    void play(choice.mode === "join" ? choice.code : null, err instanceof UserError ? err.message : fallback);
   }
 }
 

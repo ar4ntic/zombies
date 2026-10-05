@@ -31,6 +31,7 @@ export class GameSession extends DurableObject<Env> {
     const token = params.get("token");
     if (token && !room.canReconnect(token)) return new Response("Reconnect window expired", { status: 410 });
     if (!token && room.full) return new Response("Session is full", { status: 409 });
+    if (!token && room.private && !params.get("account")) return new Response("This session is for confirmed accounts", { status: 403 });
 
     const { 0: client, 1: server } = new WebSocketPair();
     server.accept();

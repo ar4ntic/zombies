@@ -12,6 +12,9 @@ export interface JoinOptions {
   difficulty?: DifficultyId;
   minutes?: number;
   energy?: EnergyMode;
+  friendlyFire?: boolean;
+  /** Team session that only confirmed accounts may join; needs a confirmed account to create. */
+  private?: boolean;
   /** Character skin shown to the other players. */
   skin?: string;
   /** Overrides the round length of solo rounds for automated tests, in seconds. */
@@ -37,6 +40,8 @@ export interface ShootMessage {
   origin: [number, number, number];
   end: [number, number, number];
   hit?: ShotHit;
+  /** Session id of a teammate the shot hit instead, which only counts with friendly fire on. */
+  hitPlayer?: string;
 }
 
 export interface SwitchWeaponMessage {
@@ -52,6 +57,7 @@ export interface SettingsMessage {
   difficulty?: DifficultyId;
   minutes?: number;
   energy?: EnergyMode;
+  friendlyFire?: boolean;
 }
 
 /** Asks for the energy capsule the player is standing on. */
@@ -158,6 +164,7 @@ export interface CreateSessionResponse {
   difficulty: string;
   energy: string;
   duration: number;
+  private: boolean;
 }
 
 export interface SessionInfo {
@@ -166,6 +173,8 @@ export interface SessionInfo {
   solo: boolean;
   difficulty: string;
   energy: string;
+  friendlyFire: boolean;
+  private: boolean;
   minutes: number;
   duration: number;
   players: number;
@@ -182,8 +191,13 @@ export interface LeaderboardEntry {
   endedAt: string;
   /** Set when the request named this player (and, if given, this nickname). */
   me?: boolean;
-  /** Set when the nickname belongs to an account with a confirmed email address. */
-  verified?: boolean;
+}
+
+/** The public board ranks players without an account, the members board confirmed accounts. */
+export type LeaderboardKind = "public" | "members";
+
+export function isLeaderboardKind(value: unknown): value is LeaderboardKind {
+  return value === "public" || value === "members";
 }
 
 export interface LeaderboardResponse {
@@ -191,6 +205,7 @@ export interface LeaderboardResponse {
   difficulty: string;
   durationMinutes: number;
   energy: string;
+  board: LeaderboardKind;
   entries: LeaderboardEntry[];
 }
 

@@ -22,6 +22,8 @@ interface Manifest {
   characters: Record<ZombieType, string[]>;
   /** Clip names of the player skins, by the keys of `PlayerClip`. */
   players: { clips: Record<string, string> };
+  /** Models of the four-legged zombies: file name, height in meters and the turn that makes them face +Z. */
+  animals?: Partial<Record<ZombieType, { model: string; height: number; yaw?: number }>>;
 }
 
 export interface CharacterTemplate {

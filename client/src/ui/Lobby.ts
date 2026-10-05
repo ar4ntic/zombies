@@ -9,8 +9,10 @@ function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
+const MEMBER_BADGE = `<span class="member" title="Confirmed account">✓</span>`;
+
 function roundSettings(state: GameState): GameSettings {
-  return { difficulty: state.difficulty as DifficultyId, minutes: state.duration / 60, energy: state.energy as EnergyMode };
+  return { difficulty: state.difficulty as DifficultyId, minutes: state.duration / 60, energy: state.energy as EnergyMode, friendlyFire: state.friendlyFire };
 }
 
 /** Team session waiting room: invite friends, pick settings, host starts the round. */
@@ -28,6 +30,7 @@ export class Lobby {
     this.el.innerHTML = `
       <div class="menu-main">
         <h1>Team lobby</h1>
+        <p class="tagline" ${state.private ? "" : "hidden"}>Private session: only confirmed accounts can join.</p>
         <div class="lobby-code">
           <span class="setting-label">Session code</span>
           <div class="lobby-copy">
@@ -106,7 +109,7 @@ export class Lobby {
     const settings = roundSettings(state);
     for (const group of this.el.querySelectorAll<HTMLElement>(".segmented")) selectSegment(group, settingValue(group.dataset.setting, settings));
     this.$.settings!.hidden = isHost;
-    const label = settingsLabel(state.difficulty, state.duration, state.energy);
+    const label = settingsLabel(state.difficulty, state.duration, state.energy, state.friendlyFire);
     if (isHost && this.cache.get(this.$.settings!) !== label) saveSettings(settings);
     this.set("settings", label);
     this.set(
@@ -119,7 +122,7 @@ export class Lobby {
       [...state.players.entries()]
         .map(
           ([id, p]) =>
-            `<li class="${id === me ? "me" : ""}">${skinAvatar(p.skin)}<span class="name">${escapeHtml(p.name)}</span>` +
+            `<li class="${id === me ? "me" : ""}">${skinAvatar(p.skin)}<span class="name">${escapeHtml(p.name)}${p.member ? MEMBER_BADGE : ""}</span>` +
             `${id === state.hostId ? `<span class="tag host">Host</span>` : ""}${id === me ? `<span class="tag">you</span>` : ""}</li>`,
         )
         .join(""),
