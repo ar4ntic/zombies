@@ -15,22 +15,16 @@ import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js
 import { ZOMBIES, ZombieAnim, zombieHash, type ZombieState, type ZombieType } from "@zombies/shared";
 import { applyDissolve, isStandardMaterial, type DissolveUniforms } from "../fx/dissolve.ts";
 import { characterPool, loadTemplate, type CharacterTemplate, type DeathKey, type LocomotionKey } from "./cast.ts";
+import { SnapshotTrack, type Pose } from "./SnapshotTrack.ts";
+import type { ZombieBody } from "./ZombieBody.ts";
 
-const INTERP_DELAY = 0.1;
 const DISSOLVE_TIME = 1.1;
 const HIT_HOLD = 0.35;
 const FADE = 0.25;
 
 type Mode = "move" | "attack" | "scream" | "dance" | "dying";
 
-interface Snapshot {
-  t: number;
-  x: number;
-  z: number;
-  rot: number;
-}
-
-export class ZombieView {
+export class ZombieView implements ZombieBody {
   readonly root: Object3D;
   readonly position = new Vector3();
   readonly scale: number;
@@ -56,7 +50,8 @@ export class ZombieView {
   private hitTimer = 0;
   private animAccum = 0;
   private readonly uniforms: DissolveUniforms[] = [];
-  private readonly snapshots: Snapshot[] = [];
+  private readonly track = new SnapshotTrack();
+  private readonly pose: Pose = { x: 0, z: 0, rot: 0 };
   private rot = 0;
   private speed = 0;
   private flash = 0;
@@ -150,8 +145,7 @@ export class ZombieView {
   }
 
   pushSnapshot() {
-    this.snapshots.push({ t: performance.now() / 1000, x: this.state.x, z: this.state.z, rot: this.state.rot });
-    if (this.snapshots.length > 10) this.snapshots.shift();
+    this.track.push(this.state);
   }
 
   hit(from: Vector3, head: boolean) {
@@ -272,22 +266,8 @@ export class ZombieView {
   }
 
   private interpolate(dt: number) {
-    const renderTime = performance.now() / 1000 - INTERP_DELAY;
-    const snaps = this.snapshots;
-    let x = this.state.x;
-    let z = this.state.z;
-    let rot = this.state.rot;
-    for (let i = snaps.length - 1; i > 0; i--) {
-      const a = snaps[i - 1]!;
-      const b = snaps[i]!;
-      if (a.t <= renderTime) {
-        const k = b.t > a.t ? MathUtils.clamp((renderTime - a.t) / (b.t - a.t), 0, 1) : 1;
-        x = a.x + (b.x - a.x) * k;
-        z = a.z + (b.z - a.z) * k;
-        rot = a.rot + Math.atan2(Math.sin(b.rot - a.rot), Math.cos(b.rot - a.rot)) * k;
-        break;
-      }
-    }
+    this.track.sample(this.state, this.pose);
+    const { x, z, rot } = this.pose;
     const frameSpeed = Math.hypot(x - this.lastPos.x, z - this.lastPos.z) / Math.max(1e-3, dt);
     this.speed = MathUtils.damp(this.speed, frameSpeed, 8, dt);
     this.lastPos.set(x, 0, z);

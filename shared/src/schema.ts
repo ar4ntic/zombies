@@ -24,6 +24,8 @@ export const PlayerState = schema(
     shots: t.uint16().default(0),
     hits: t.uint16().default(0),
     skin: t.string().default(""),
+    /** Plays as a confirmed account, so the nickname is their own and scores go to the members leaderboard. */
+    member: t.boolean().default(false),
   },
   "PlayerState",
 );
@@ -72,6 +74,10 @@ export const GameState = schema(
     duration: t.uint16().default(0),
     difficulty: t.string().default("normal"),
     energy: t.string().default("limited"),
+    /** Whether players' shots hurt their teammates. */
+    friendlyFire: t.boolean().default(false),
+    /** Only confirmed accounts may join. */
+    private: t.boolean().default(false),
     /** Team score needed for the second star. */
     scoreStar: t.uint32().default(0),
     teamScore: t.uint32().default(0),

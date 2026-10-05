@@ -4,7 +4,9 @@ import {
   LOBBY_COUNTDOWN_SECONDS,
   DEATH_PENALTY,
   ENERGY_PICKUP_AMOUNT,
+  EXTRA_ZOMBIES_ALIVE_PER_PLAYER,
   EXTRA_ZOMBIES_PER_PLAYER,
+  FRIENDLY_FIRE_DAMAGE,
   HEALTH_PICKUP_AMOUNT,
   MAX_COMBO,
   MAX_ZOMBIES_ALIVE,
@@ -106,6 +108,7 @@ export interface RoundSettings {
   /** Round length in seconds. */
   duration: number;
   energy: EnergyMode;
+  friendlyFire: boolean;
 }
 
 export class Simulation {
@@ -158,6 +161,7 @@ export class Simulation {
     this.state.duration = this.duration;
     this.state.difficulty = this.difficulty.id;
     this.state.energy = settings.energy;
+    this.state.friendlyFire = settings.friendlyFire;
     this.state.scoreStar = starScore(this.level.scoreStarPerMinute, this.difficulty, this.duration);
   }
 
@@ -220,11 +224,12 @@ export class Simulation {
     player.protection = SPAWN_PROTECTION_SECONDS;
   }
 
-  /** Respawns at the open spot furthest from any zombie; the level spawns are used while there are none. */
+  /** Respawns at the open spot furthest from any zombie; while there are none, at a level spawn nobody stands on. */
   private respawn(player: PlayerState) {
     if (this.state.zombies.size === 0) {
       const spawns = this.level.playerSpawns;
-      this.placeAtSpawn(player, spawns[Math.floor(Math.random() * spawns.length)]!);
+      const taken = (spawn: Vec2) => [...this.state.players.values()].some((p) => p !== player && Math.hypot(p.x - spawn.x, p.z - spawn.z) < PLAYER_RADIUS * 2);
+      this.placeAtSpawn(player, spawns.find((spawn) => !taken(spawn)) ?? spawns[Math.floor(Math.random() * spawns.length)]!);
       return;
     }
     let best = this.respawnPoints[0]!;
@@ -259,6 +264,15 @@ export class Simulation {
     player.protection = 0;
     if (this.state.phase !== "playing") return true;
     player.shots++;
+
+    if (msg.hitPlayer !== undefined) {
+      const mate = this.state.players.get(msg.hitPlayer);
+      const inRange = mate && Math.hypot(mate.x - player.x, mate.z - player.z) <= weapon.range + HIT_RANGE_SLACK;
+      if (this.state.friendlyFire && mate && mate !== player && inRange) {
+        this.damagePlayer(msg.hitPlayer, mate, Math.round(weapon.damage * FRIENDLY_FIRE_DAMAGE), player.x, player.z);
+      }
+      return true;
+    }
 
     const hit = msg.hit;
     if (!hit) return true;
@@ -374,7 +388,7 @@ export class Simulation {
     const team = 1 + EXTRA_ZOMBIES_PER_PLAYER * Math.max(0, this.state.players.size - 1);
     const queue: ZombieType[] = [];
     for (const [type, count] of Object.entries(def.zombies) as Array<[ZombieType, number]>) {
-      const scale = type === "brute" ? team : team * this.difficulty.waveSize;
+      const scale = team * (type === "brute" ? 1 : ZOMBIES[type].body === "quadruped" ? this.difficulty.animals : this.difficulty.waveSize);
       for (let i = 0; i < Math.round(count * scale); i++) queue.push(type);
     }
     shuffle(queue);
@@ -493,7 +507,8 @@ export class Simulation {
   private updateSpawning(dt: number) {
     if (this.spawnQueue.length === 0) return;
     this.spawnTimer -= dt;
-    if (this.spawnTimer > 0 || this.state.zombies.size >= this.maxAlive) return;
+    const maxAlive = this.maxAlive + EXTRA_ZOMBIES_ALIVE_PER_PLAYER * Math.max(0, this.state.players.size - 1);
+    if (this.spawnTimer > 0 || this.state.zombies.size >= maxAlive) return;
     this.spawnTimer = this.spawnInterval;
 
     const type = this.spawnQueue.pop()!;

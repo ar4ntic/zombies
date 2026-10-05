@@ -6,6 +6,7 @@ import {
   isRoundMinutes,
   nicknameKey,
   type LeaderboardEntry,
+  type LeaderboardKind,
   type PersonalBestEvent,
 } from "@zombies/shared";
 
@@ -75,19 +76,25 @@ export interface Viewer {
 }
 
 /**
- * Best score per player for one level / difficulty / round length / energy mode. A player is an account, or
- * for anonymous players a browser id plus a nickname, so people sharing one browser under different nicknames
- * each keep their own entry. Anonymous entries under a nickname that an account protects are left out.
+ * Best score per player for one level / difficulty / round length / energy mode. The public board ranks players
+ * without an account, each a browser id plus a nickname, so people sharing one browser under different nicknames
+ * keep their own entries; entries under a nickname that an account has reserved are left out. The members board
+ * ranks accounts.
  */
-export async function leaderboard(db: D1Database, category: Category, limit: number, me: Viewer = {}): Promise<LeaderboardEntry[]> {
+export async function leaderboard(db: D1Database, category: Category, board: LeaderboardKind, limit: number, me: Viewer = {}): Promise<LeaderboardEntry[]> {
+  const players =
+    board === "members"
+      ? "rp.account_id IS NOT NULL"
+      : `rp.account_id IS NULL AND rp.nickname_key NOT IN (
+           SELECT nickname_key FROM accounts WHERE nickname_key IS NOT NULL AND email_verified_at IS NOT NULL)`;
   const { results } = await db
     .prepare(
-      `SELECT nickname, score, kills, headshots, deaths, endedAt, verified,
+      `SELECT nickname, score, kills, headshots, deaths, endedAt,
               CASE WHEN accountId IS NOT NULL THEN accountId = ?8
                    ELSE playerId = ?5 AND (?6 IS NULL OR nameKey = ?6) END AS me
          FROM (
            SELECT rp.player_id AS playerId, rp.account_id AS accountId, rp.nickname_key AS nameKey,
-                  COALESCE(a.nickname, rp.nickname) AS nickname, a.email_verified_at IS NOT NULL AS verified,
+                  COALESCE(a.nickname, rp.nickname) AS nickname,
                   rp.score, rp.kills, rp.headshots, rp.deaths, r.ended_at AS endedAt,
                   ROW_NUMBER() OVER (
                     PARTITION BY COALESCE(rp.account_id, rp.player_id || ':' || rp.nickname_key)
@@ -96,9 +103,7 @@ export async function leaderboard(db: D1Database, category: Category, limit: num
              FROM round_players rp
              JOIN rounds r ON r.id = rp.round_id
              LEFT JOIN accounts a ON a.id = rp.account_id
-            WHERE r.level = ?1 AND r.difficulty = ?2 AND r.duration_minutes = ?3 AND r.energy = ?7
-              AND (rp.account_id IS NOT NULL OR rp.nickname_key NOT IN (
-                    SELECT nickname_key FROM accounts WHERE nickname_key IS NOT NULL AND email_verified_at IS NOT NULL))
+            WHERE r.level = ?1 AND r.difficulty = ?2 AND r.duration_minutes = ?3 AND r.energy = ?7 AND ${players}
          )
         WHERE n = 1
         ORDER BY score DESC, endedAt ASC
@@ -114,8 +119,8 @@ export async function leaderboard(db: D1Database, category: Category, limit: num
       category.energy,
       me.accountId ?? null,
     )
-    .all<Omit<LeaderboardEntry, "rank" | "me" | "verified"> & { me: number | null; verified: number | null }>();
-  return results.map(({ me: mine, verified, ...row }, i) => ({ rank: i + 1, ...row, ...(mine ? { me: true } : {}), ...(verified ? { verified: true } : {}) }));
+    .all<Omit<LeaderboardEntry, "rank" | "me"> & { me: number | null }>();
+  return results.map(({ me: mine, ...row }, i) => ({ rank: i + 1, ...row, ...(mine ? { me: true } : {}) }));
 }
 
 /**

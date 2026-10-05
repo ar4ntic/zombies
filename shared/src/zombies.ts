@@ -1,4 +1,4 @@
-export type ZombieType = "walker" | "runner" | "brute";
+export type ZombieType = "walker" | "runner" | "brute" | "dog" | "cat";
 
 /** Hit volumes for a scale-1 zombie in meters, measured from the locomotion poses. */
 export interface ZombieHitbox {
@@ -12,6 +12,8 @@ export interface ZombieHitbox {
 }
 
 export interface ZombieDef {
+  /** Two-legged zombies play skeletal animations; four-legged ones are static models the game moves itself. */
+  body: "biped" | "quadruped";
   hp: number;
   speed: number;
   damage: number;
@@ -21,7 +23,7 @@ export interface ZombieDef {
   reach: number;
   points: number;
   radius: number;
-  /** Visual scale relative to a 1.8 m tall human. */
+  /** Visual scale relative to a 1.8 m tall human. Four-legged zombies are modeled at their own size. */
   scale: number;
   hitbox: ZombieHitbox;
   /** Chance to stop and scream right after spawning. */
@@ -29,10 +31,13 @@ export interface ZombieDef {
 }
 
 const UPRIGHT: ZombieHitbox = { bodyRadius: 0.36, bodyHeight: 1.32, bodyForward: 0.04, headY: 1.5, headForward: 0.1, headRadius: 0.21 };
+const DOG: ZombieHitbox = { bodyRadius: 0.4, bodyHeight: 0.7, bodyForward: -0.1, headY: 0.72, headForward: 0.5, headRadius: 0.2 };
+const CAT: ZombieHitbox = { bodyRadius: 0.28, bodyHeight: 0.45, bodyForward: -0.05, headY: 0.42, headForward: 0.15, headRadius: 0.17 };
 const LEANING: ZombieHitbox = { bodyRadius: 0.36, bodyHeight: 1.15, bodyForward: 0.2, headY: 1.32, headForward: 0.45, headRadius: 0.21 };
 
 export const ZOMBIES: Record<ZombieType, ZombieDef> = {
   walker: {
+    body: "biped",
     hp: 100,
     speed: 1.3,
     damage: 12,
@@ -46,6 +51,7 @@ export const ZOMBIES: Record<ZombieType, ZombieDef> = {
     screamChance: 0.3,
   },
   runner: {
+    body: "biped",
     hp: 70,
     speed: 4.2,
     damage: 8,
@@ -59,6 +65,7 @@ export const ZOMBIES: Record<ZombieType, ZombieDef> = {
     screamChance: 0.5,
   },
   brute: {
+    body: "biped",
     hp: 350,
     speed: 1.1,
     damage: 30,
@@ -70,6 +77,34 @@ export const ZOMBIES: Record<ZombieType, ZombieDef> = {
     scale: 1.3,
     hitbox: UPRIGHT,
     screamChance: 1,
+  },
+  dog: {
+    body: "quadruped",
+    hp: 60,
+    speed: 5,
+    damage: 10,
+    attackRange: 1.2,
+    attackCooldown: 0.9,
+    reach: 1,
+    points: 175,
+    radius: 0.4,
+    scale: 1,
+    hitbox: DOG,
+    screamChance: 0,
+  },
+  cat: {
+    body: "quadruped",
+    hp: 35,
+    speed: 5.8,
+    damage: 6,
+    attackRange: 1.1,
+    attackCooldown: 0.7,
+    reach: 1,
+    points: 125,
+    radius: 0.28,
+    scale: 1,
+    hitbox: CAT,
+    screamChance: 0,
   },
 };
 

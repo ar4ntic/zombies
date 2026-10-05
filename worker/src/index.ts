@@ -1,6 +1,6 @@
-import { cleanNickname, type CreateSessionResponse } from "@zombies/shared";
+import { cleanNickname, isLeaderboardKind, type CreateSessionResponse, type LeaderboardResponse } from "@zombies/shared";
 import { checkNickname, handleAuth, nicknameOwner } from "./accounts.ts";
-import { sessionAccount } from "./auth.ts";
+import { sessionAccount, type Account } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { json, leaderboard, parseCategory, parseLimit } from "./scores.ts";
 import { generateSessionCode, isSessionCode } from "./sessionCode.ts";
@@ -35,17 +35,26 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
+/** A member is an account with a confirmed email address and a nickname; everybody else plays as a public player. */
+function isMember(account: Account | null): account is Account & { nickname: string } {
+  return account !== null && account.verified && account.nickname !== null;
+}
+
 function stub(env: Env, code: string) {
   return env.GAME.get(env.GAME.idFromName(code));
 }
 
 async function createSession(request: Request, env: Env): Promise<Response> {
   const options = await request.json().catch(() => null);
+  if ((options as { private?: unknown } | null)?.private === true) {
+    const account = await sessionAccount(request, env.DB).catch(() => null);
+    if (!isMember(account)) return json({ error: "Private sessions need an account with a confirmed email address and a nickname." }, 403);
+  }
   for (let attempt = 0; attempt < CREATE_ATTEMPTS; attempt++) {
     const code = generateSessionCode();
     const info = await stub(env, code).init(code, options);
     if (!info) continue;
-    const body: CreateSessionResponse = { code, solo: info.solo, difficulty: info.difficulty, energy: info.energy, duration: info.duration };
+    const body: CreateSessionResponse = { code, solo: info.solo, difficulty: info.difficulty, energy: info.energy, duration: info.duration, private: info.private };
     return json(body, 201);
   }
   return json({ error: "Could not allocate a session code" }, 503);
@@ -66,8 +75,8 @@ async function connect(request: Request, env: Env, code: string): Promise<Respon
   url.searchParams.delete("account");
   if (!url.searchParams.has("token")) {
     const account = await sessionAccount(request, env.DB).catch(() => null);
-    if (account?.nickname) {
-      // Logged in players always play under their account's nickname.
+    if (isMember(account)) {
+      // Members always play under their account's nickname.
       url.searchParams.set("name", account.nickname);
       url.searchParams.set("account", account.id);
     } else {
@@ -84,8 +93,11 @@ async function getLeaderboard(request: Request, env: Env, params: URLSearchParam
   try {
     const account = await sessionAccount(request, env.DB).catch(() => null);
     const me = { playerId: params.get("player") ?? undefined, nickname: params.get("name")?.trim() || undefined, accountId: account?.id };
-    const entries = await leaderboard(env.DB, category, parseLimit(params), me);
-    return json({ ...category, entries });
+    const requested = params.get("board");
+    const board = isLeaderboardKind(requested) ? requested : "public";
+    const entries = await leaderboard(env.DB, category, board, parseLimit(params), me);
+    const body: LeaderboardResponse = { ...category, board, entries };
+    return json(body);
   } catch (err) {
     console.error("Could not load leaderboard", err);
     return json({ error: "Leaderboard unavailable" }, 503);

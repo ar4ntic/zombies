@@ -18,6 +18,7 @@ import {
   PlaneGeometry,
   PointLight,
   Quaternion,
+  Raycaster,
   Scene,
   Sphere,
   SphereGeometry,
@@ -45,6 +46,10 @@ export class World {
   private readonly casters: BufferGeometry[] = [];
   private readonly lampLights: PointLight[] = [];
   private readonly lampPools: Mesh[] = [];
+  /** The ground, walls and props a shot can leave a mark on. */
+  private readonly surfaces: Object3D[] = [];
+  private readonly raycaster = new Raycaster();
+  private readonly hitMatrix = new Matrix4();
 
   constructor(private readonly level: LevelDef) {}
 
@@ -59,6 +64,29 @@ export class World {
     this.addLights();
     await Promise.all([this.addGround(), this.addStructures(), this.addProps(), this.addStreetLamps()]);
     this.addShadowProxy();
+  }
+
+  /**
+   * Where a ray meets the visible world between `near` and `far` along it. Writes the point and the surface
+   * normal there (facing the ray's origin) and returns whether anything was hit. The colliders are only boxes
+   * around the props, so marks on them are placed with this instead.
+   */
+  surfaceHit(origin: Vector3, dir: Vector3, near: number, far: number, point: Vector3, normal: Vector3): boolean {
+    this.raycaster.set(origin, dir);
+    this.raycaster.near = Math.max(0, near);
+    this.raycaster.far = far;
+    const hit = this.raycaster.intersectObjects(this.surfaces, false)[0];
+    if (!hit?.face) return false;
+    const object = hit.object as Mesh | InstancedMesh;
+    this.hitMatrix.copy(object.matrixWorld);
+    if (hit.instanceId !== undefined && "getMatrixAt" in object) {
+      object.getMatrixAt(hit.instanceId, this.hitMatrix);
+      this.hitMatrix.premultiply(object.matrixWorld);
+    }
+    point.copy(hit.point);
+    normal.copy(hit.face.normal).transformDirection(this.hitMatrix);
+    if (normal.dot(dir) > 0) normal.negate();
+    return true;
   }
 
   applyGraphics(settings: QualitySettings) {
@@ -97,7 +125,7 @@ export class World {
     const lot = new Mesh(new PlaneGeometry(size, size), pbrMaterial(lotTex));
     lot.rotation.x = -Math.PI / 2;
     lot.receiveShadow = true;
-    this.addStatic(lot);
+    this.addStatic(lot, true);
 
     const field = new Mesh(new PlaneGeometry(300, 300), pbrMaterial(outsideTex));
     field.rotation.x = -Math.PI / 2;
@@ -120,7 +148,7 @@ export class World {
         });
         const mesh = new Mesh(mergeGeometries(geometries), pbrMaterial(set));
         mesh.receiveShadow = true;
-        this.addStatic(mesh);
+        this.addStatic(mesh, true);
       }),
     );
   }
@@ -157,7 +185,7 @@ export class World {
         mesh = instanced;
       }
       mesh.receiveShadow = true;
-      this.addStatic(mesh);
+      this.addStatic(mesh, true);
     });
   }
 
@@ -246,10 +274,14 @@ export class World {
     this.addStatic(proxy);
   }
 
-  private addStatic(object: Object3D) {
+  private addStatic(object: Object3D, surface = false) {
     object.updateMatrix();
     object.matrixAutoUpdate = false;
     this.scene.add(object);
+    if (surface) {
+      object.updateMatrixWorld(true);
+      this.surfaces.push(object);
+    }
   }
 }
 

@@ -97,6 +97,13 @@ body {
   text-shadow: 0 0 24px rgba(125, 255, 106, 0.45);
 }
 
+.menu h1.brand img {
+  display: block;
+  width: min(100%, 290px);
+  height: auto;
+  filter: drop-shadow(0 0 18px rgba(125, 255, 106, 0.3));
+}
+
 .menu .tagline {
   margin: -8px 0 4px;
   opacity: 0.75;
@@ -252,8 +259,13 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
+.leaderboard .segmented {
+  margin: 8px 0 6px;
+}
+
 .menu .segmented button,
-.hud .pause .segmented button {
+.hud .pause .segmented button,
+.hud .leaderboard .segmented button {
   flex: 1;
   padding: 8px 4px;
   border: 1px solid transparent;
@@ -265,13 +277,15 @@ body {
 }
 
 .menu .segmented button:hover,
-.hud .pause .segmented button:hover {
+.hud .pause .segmented button:hover,
+.hud .leaderboard .segmented button:hover {
   background: rgba(255, 255, 255, 0.08);
   opacity: 1;
 }
 
 .menu .segmented button[aria-checked="true"],
-.hud .pause .segmented button[aria-checked="true"] {
+.hud .pause .segmented button[aria-checked="true"],
+.hud .leaderboard .segmented button[aria-checked="true"] {
   background: var(--accent-dark);
   border-color: var(--accent);
   opacity: 1;
@@ -369,7 +383,14 @@ body.look-testing #ui {
   color: var(--accent);
 }
 
+.menu .setting-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
 .menu .setting-hint {
+  margin-top: -8px;
   font-size: 0.8rem;
   opacity: 0.6;
 }
@@ -428,7 +449,26 @@ body.look-testing #ui {
   border-color: #ff7a6e;
 }
 
-.leaderboard .verified {
+.menu label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin-top: -6px;
+  font-size: 0.85rem;
+}
+
+.menu label.check input {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.menu label.check:has(input:disabled) {
+  opacity: 0.55;
+}
+
+.lobby .member {
   margin-left: 5px;
   color: var(--accent);
 }
@@ -893,6 +933,15 @@ kbd {
   font-variant-numeric: tabular-nums;
 }
 
+.hud .minimap {
+  position: absolute;
+  right: 22px;
+  bottom: 124px;
+  width: 176px;
+  height: 176px;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
+}
+
 .hud .ammo-panel {
   position: absolute;
   right: 26px;
@@ -1113,7 +1162,7 @@ kbd {
 .hud .notice {
   position: absolute;
   right: 26px;
-  bottom: 150px;
+  bottom: 312px;
   padding: 6px 12px;
   border-radius: 6px;
   background: rgba(10, 14, 12, 0.6);

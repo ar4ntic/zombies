@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// Generates rigged, animated zombie characters and player skins with the Meshy API.
+// Generates rigged, animated zombie characters and player skins, and static four-legged zombies, with the Meshy API.
 //
-//   node scripts/meshy/generate.mjs <id...|zombies|players|all> [--until=preview|refine|rig|animate|export]
+//   node scripts/meshy/generate.mjs <id...|zombies|players|animals|all> [--until=preview|refine|rig|animate|export] [--fresh]
 //
 // Progress (task ids) is stored in scripts/meshy/state/<id>.json so re-running resumes
 // without paying for finished steps again, and separate characters can run in parallel.
+// --fresh forgets the progress of the named characters and generates them anew, paying for every step again.
 // Requires MESHY_API_KEY in .env.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -14,7 +15,7 @@ import { NodeIO } from "@gltf-transform/core";
 import { ALL_EXTENSIONS } from "@gltf-transform/extensions";
 import { MeshoptDecoder, MeshoptEncoder } from "meshoptimizer";
 import sharp from "sharp";
-import { ANIMATIONS, CAST, PLAYER_ANIMATIONS, PLAYERS } from "./cast.mjs";
+import { ANIMALS, ANIMATIONS, CAST, PLAYER_ANIMATIONS, PLAYERS } from "./cast.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const stateDir = join(root, "scripts/meshy/state");
@@ -28,11 +29,13 @@ const THUMBNAIL_SIZE = 256;
 const PORTRAIT = { left: 0.31, top: 0.04, size: 0.38 };
 
 // Player skins are seen from further away than the zombies in the player's face, and ten of them have to load.
+// Animals have no animations: they skip rigging and are exported as textured meshes.
 const GROUPS = {
-  zombies: CAST.map((c) => ({ ...c, animations: ANIMATIONS, textureSize: 2048, thumbnail: false })),
-  players: PLAYERS.map((c) => ({ ...c, animations: PLAYER_ANIMATIONS, textureSize: 1024, thumbnail: true })),
+  zombies: CAST.map((c) => ({ ...c, animations: ANIMATIONS, textureSize: 2048, polycount: 30000, thumbnail: false })),
+  players: PLAYERS.map((c) => ({ ...c, animations: PLAYER_ANIMATIONS, textureSize: 1024, polycount: 30000, thumbnail: true })),
+  animals: ANIMALS.map((c) => ({ ...c, animations: null, textureSize: 1024, polycount: 12000, thumbnail: false })),
 };
-const CHARACTERS = [...GROUPS.zombies, ...GROUPS.players];
+const CHARACTERS = Object.values(GROUPS).flat();
 
 const apiKey = process.env.MESHY_API_KEY ?? readEnvKey();
 if (!apiKey) throw new Error("MESHY_API_KEY missing (add it to .env)");
@@ -44,12 +47,13 @@ const ids = args.filter((a) => !a.startsWith("--"));
 const targets = ids.includes("all")
   ? CHARACTERS
   : CHARACTERS.filter((c) => ids.includes(c.id) || Object.entries(GROUPS).some(([group, cast]) => ids.includes(group) && cast.includes(c)));
-if (targets.length === 0) throw new Error(`Pick characters: all | zombies | players | ${CHARACTERS.map((c) => c.id).join(" | ")}`);
+if (targets.length === 0) throw new Error(`Pick characters: all | ${[...Object.keys(GROUPS), ...CHARACTERS.map((c) => c.id)].join(" | ")}`);
 
+const fresh = args.includes("--fresh");
 const state = {};
 for (const char of targets) {
   const file = join(stateDir, `${char.id}.json`);
-  state[char.id] = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+  state[char.id] = existsSync(file) && !fresh ? JSON.parse(readFileSync(file, "utf8")) : {};
 }
 const saveState = () => {
   mkdirSync(stateDir, { recursive: true });
@@ -137,6 +141,28 @@ async function removeRootMotion(src, dest) {
   await io.write(dest, doc);
 }
 
+/** Writes the compressed model the game loads. */
+function optimize(src, char) {
+  const dest = join(outDir, `${char.id}.glb`);
+  mkdirSync(outDir, { recursive: true });
+  execFileSync(
+    gltfTransform,
+    [
+      "optimize",
+      src,
+      dest,
+      "--compress", "meshopt",
+      "--texture-compress", "webp",
+      "--texture-size", String(char.textureSize),
+      "--simplify", "false",
+      "--join", "false",
+      "--instance", "false",
+    ],
+    { stdio: ["ignore", "ignore", "inherit"] },
+  );
+  console.log(`  exported ${dest.replace(root + "/", "")}`);
+}
+
 for (const char of targets) {
   console.log(`\n== ${char.id}`);
   const dir = join(cacheDir, char.id);
@@ -149,10 +175,10 @@ for (const char of targets) {
         mode: "preview",
         prompt: char.prompt,
         ai_model: "latest",
-        pose_mode: "a-pose",
+        ...(char.animations ? { pose_mode: "a-pose" } : {}),
         should_remesh: true,
         topology: "triangle",
-        target_polycount: 30000,
+        target_polycount: char.polycount,
         target_formats: ["glb"],
       }),
     (id) => `/v2/text-to-3d/${id}`,
@@ -178,6 +204,10 @@ for (const char of targets) {
   await download(refine.thumbnail_url, join(dir, "refine.png"));
   await download(refine.model_urls.glb, join(dir, "textured.glb"));
   console.log(`  textured thumbnail: ${join(dir, "refine.png")}`);
+  if (!char.animations) {
+    if (reached("export")) optimize(join(dir, "textured.glb"), char);
+    continue;
+  }
   if (!reached("rig")) continue;
 
   await step(
@@ -204,24 +234,7 @@ for (const char of targets) {
 
   const inPlace = join(dir, "in-place.glb");
   await removeRootMotion(join(dir, "animated.glb"), inPlace);
-  const dest = join(outDir, `${char.id}.glb`);
-  mkdirSync(outDir, { recursive: true });
-  execFileSync(
-    gltfTransform,
-    [
-      "optimize",
-      inPlace,
-      dest,
-      "--compress", "meshopt",
-      "--texture-compress", "webp",
-      "--texture-size", String(char.textureSize),
-      "--simplify", "false",
-      "--join", "false",
-      "--instance", "false",
-    ],
-    { stdio: ["ignore", "ignore", "inherit"] },
-  );
-  console.log(`  exported ${dest.replace(root + "/", "")}`);
+  optimize(inPlace, char);
   if (char.thumbnail) {
     const thumb = join(outDir, "thumbs", `${char.id}.webp`);
     mkdirSync(dirname(thumb), { recursive: true });

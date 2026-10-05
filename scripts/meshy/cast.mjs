@@ -146,3 +146,30 @@ export const PLAYERS = [
     texture: `${PLAYER_TEXTURE_STYLE}, white lab coat, purple gloves, teal sweater, dark trousers`,
   },
 ];
+
+const ANIMAL_STYLE =
+  "Stylized 3D game creature in the style of Fortnite and Pixar, spooky-funny cartoon zombie animal standing on all four legs, " +
+  "clearly undead: scruffy patchy sickly green fur, sewn-on fabric patches with big stitches, one torn ragged ear, " +
+  "sunken dark rings around mismatched bulging glowing yellow eyes, crooked snaggle teeth, hunched bony posture, grumpy hungry expression, " +
+  "not cute, no blood, no gore, no open wounds, no exposed bones, kid friendly, high quality game asset";
+
+const ANIMAL_TEXTURE_STYLE =
+  "stylized hand-painted look, sickly zombie green fur with darker mouldy green and grey-purple patches, dark purple rings around " +
+  "glowing yellow eyes, visible stitches and sewn-on patches, no blood, no gore";
+
+/**
+ * Four-legged zombies. Meshy only rigs two-legged characters, so these stay static models that the game
+ * animates itself; their size and facing are set in characters/manifest.json.
+ */
+export const ANIMALS = [
+  {
+    id: "zombie_dog",
+    prompt: `${ANIMAL_STYLE}, a mangy zombie dog with a crooked underbite, a bandaged front leg, a drooping tail and a tattered red collar`,
+    texture: `${ANIMAL_TEXTURE_STYLE}, tattered red collar, grey bandage, yellowed teeth`,
+  },
+  {
+    id: "zombie_cat",
+    prompt: `${ANIMAL_STYLE}, a scraggly zombie cat with an arched back, bristling fur, a kinked crooked tail, bent whiskers and a tattered purple collar`,
+    texture: `${ANIMAL_TEXTURE_STYLE}, tattered purple collar, yellowed fangs`,
+  },
+];

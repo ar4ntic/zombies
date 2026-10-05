@@ -26,6 +26,10 @@
       "cheer": "Victory_Cheer"
     }
   },
+  "animals": {
+    "dog": { "model": "zombie_dog", "height": 0.8 },
+    "cat": { "model": "zombie_cat", "height": 0.55 }
+  },
   "height": 1.8,
   "facing": "+Z"
 }

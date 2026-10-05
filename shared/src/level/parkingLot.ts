@@ -15,6 +15,12 @@ export const PARKING_LOT: LevelDef = {
     { x: 2, z: 4 },
     { x: -2, z: 4 },
     { x: 0, z: 6 },
+    { x: 2, z: 6 },
+    { x: -2, z: 6 },
+    { x: 0, z: 8 },
+    { x: 2, z: 8 },
+    { x: -2, z: 8 },
+    { x: 0, z: 10 },
   ],
   zombieSpawns: [
     { x: -1.5, z: -36 },
@@ -77,9 +83,9 @@ export const PARKING_LOT: LevelDef = {
   waves: [
     { zombies: { walker: 8 }, spawnInterval: 1 },
     { zombies: { walker: 12, runner: 2 }, spawnInterval: 0.9 },
-    { zombies: { walker: 14, runner: 5, brute: 1 }, spawnInterval: 0.8 },
-    { zombies: { walker: 18, runner: 8, brute: 2 }, spawnInterval: 0.7 },
-    { zombies: { walker: 22, runner: 12, brute: 3 }, spawnInterval: 0.6 },
+    { zombies: { walker: 14, runner: 5, brute: 1, dog: 2 }, spawnInterval: 0.8 },
+    { zombies: { walker: 18, runner: 8, brute: 2, dog: 3, cat: 3 }, spawnInterval: 0.7 },
+    { zombies: { walker: 22, runner: 12, brute: 3, dog: 5, cat: 5 }, spawnInterval: 0.6 },
   ],
   scoreStarPerMinute: 8000,
 };

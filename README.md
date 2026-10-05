@@ -21,9 +21,14 @@ Everything runs on one Cloudflare Worker:
 - Players can jump onto crates, walls and cars. Walkers and runners cannot hit a player standing higher than
   one meter; brutes can.
 - Players pick one of the character skins; the others see it, and it colors their own first-person arms.
+- Team sessions take up to 10 players. "Friendly fire" is a round setting: when it is on, shots also hurt teammates.
+- Later waves bring fast, galloping zombie dogs and cats on normal difficulty and above.
+- A round map in the corner, turned with the player's view, shows zombies, teammates, pickups and obstacles.
+- Bolts leave burn marks on the ground, walls and objects.
 - The end of a round shows every player's accuracy (hits per shot).
 - An optional account (email and password) owns one nickname. Once the email address is confirmed, nobody
-  else can play or appear on a leaderboard under that nickname.
+  else can play under that nickname, the account is ranked on the members leaderboard instead of the
+  public one, and it can open and join private team sessions.
 
 ## Develop
 
@@ -106,7 +111,8 @@ and never show up on leaderboards.
   `-- --rebuild-models` to re-simplify the models from `.asset-cache` without downloading them again)
 - `scripts/zombie-lods.mjs` - adds the two simplified LOD meshes to the zombie characters
   (`node scripts/zombie-lods.mjs`, safe to re-run)
-- `scripts/meshy/` - generates the zombie characters and the player skins with the Meshy API
-  (costs credits; see `AGENTS.md`)
+- `scripts/meshy/` - generates the zombie characters, the four-legged zombies and the player skins
+  with the Meshy API (costs credits; see `AGENTS.md`)
+- `scripts/make-icons.mjs` - renders the PNG icons from `client/public/favicon.svg`
 
 Art credits are listed in `client/public/assets/CREDITS.txt`.

@@ -43,6 +43,9 @@ export interface RoomOptions {
   /** Round length in seconds. */
   duration: number;
   energy: EnergyMode;
+  friendlyFire: boolean;
+  /** Only confirmed accounts may join. */
+  private: boolean;
 }
 
 export function parseRoomOptions(input: unknown): RoomOptions {
@@ -56,7 +59,7 @@ export function parseRoomOptions(input: unknown): RoomOptions {
     solo && options.duration != null && Number.isFinite(testDuration)
       ? Math.round(Math.max(MIN_TEST_DURATION, Math.min(MAX_TEST_DURATION, testDuration)))
       : minutes * 60;
-  return { solo, difficulty, duration, energy };
+  return { solo, difficulty, duration, energy, friendlyFire: options.friendlyFire === true, private: !solo && options.private === true };
 }
 
 interface RoomClient {
@@ -90,6 +93,7 @@ export class GameRoom {
     private readonly onDispose: () => void,
   ) {
     this.state.solo = options.solo;
+    this.state.private = options.private;
     this.maxClients = options.solo ? 1 : MAX_PLAYERS;
     this.sim = new Simulation(
       this.state,
@@ -100,10 +104,14 @@ export class GameRoom {
         playerHurt: (e) => this.broadcast("playerHurt", e),
         pickup: (e) => this.broadcast("pickup", e),
       },
-      { difficulty: DIFFICULTIES[options.difficulty], duration: options.duration, energy: options.energy },
+      { difficulty: DIFFICULTIES[options.difficulty], duration: options.duration, energy: options.energy, friendlyFire: options.friendlyFire },
       !options.solo,
     );
     this.unusedTimer = setTimeout(() => this.dispose(), UNUSED_SESSION_MS);
+  }
+
+  get private(): boolean {
+    return this.state.private;
   }
 
   get full(): boolean {
@@ -117,6 +125,8 @@ export class GameRoom {
       solo: this.state.solo,
       difficulty: this.state.difficulty,
       energy: this.state.energy,
+      friendlyFire: this.state.friendlyFire,
+      private: this.state.private,
       minutes: this.state.duration / 60,
       duration: this.state.duration,
       players: this.clients.size,
@@ -132,7 +142,7 @@ export class GameRoom {
     this.clients.set(id, client);
 
     const name = cleanNickname(rawName ?? "") || "Survivor";
-    const player = new PlayerState({ name, skin: isSkin(rawSkin) ? rawSkin : DEFAULT_SKIN });
+    const player = new PlayerState({ name, skin: isSkin(rawSkin) ? rawSkin : DEFAULT_SKIN, member: accountId !== null });
     this.state.players.set(id, player);
     this.sim.addPlayer(id, player);
     if (!this.state.hostId) this.state.hostId = id;
@@ -219,7 +229,8 @@ export class GameRoom {
       case "shoot": {
         if (!msg || !isWeaponId(msg.weapon) || !isVec3(msg.origin) || !isVec3(msg.end)) return;
         const hit = msg.hit && typeof msg.hit.zombie === "string" ? { zombie: msg.hit.zombie, head: !!msg.hit.head } : undefined;
-        if (!this.sim.shoot(client.id, player, { weapon: msg.weapon, origin: msg.origin, end: msg.end, hit })) return;
+        const hitPlayer = typeof msg.hitPlayer === "string" ? msg.hitPlayer : undefined;
+        if (!this.sim.shoot(client.id, player, { weapon: msg.weapon, origin: msg.origin, end: msg.end, hit, hitPlayer })) return;
         const shot: ShotEvent = { by: client.id, weapon: msg.weapon, origin: msg.origin, end: msg.end };
         this.broadcast("shot", shot, client);
         break;
@@ -241,8 +252,11 @@ export class GameRoom {
         const difficulty: unknown = msg?.difficulty ?? this.state.difficulty;
         const minutes: unknown = msg?.minutes ?? this.state.duration / 60;
         const energy: unknown = msg?.energy ?? this.state.energy;
-        if (!isDifficulty(difficulty) || !isRoundMinutes(minutes) || !isEnergyMode(energy)) return this.reject(client, "Unknown settings");
-        this.sim.configure({ difficulty: DIFFICULTIES[difficulty], duration: minutes * 60, energy });
+        const friendlyFire: unknown = msg?.friendlyFire ?? this.state.friendlyFire;
+        if (!isDifficulty(difficulty) || !isRoundMinutes(minutes) || !isEnergyMode(energy) || typeof friendlyFire !== "boolean") {
+          return this.reject(client, "Unknown settings");
+        }
+        this.sim.configure({ difficulty: DIFFICULTIES[difficulty], duration: minutes * 60, energy, friendlyFire });
         break;
       }
       case "start":

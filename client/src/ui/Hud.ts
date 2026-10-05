@@ -12,6 +12,7 @@ import {
 import type { Game } from "../game/Game.ts";
 import { Leaderboard } from "./Leaderboard.ts";
 import { Lobby } from "./Lobby.ts";
+import { Minimap } from "./Minimap.ts";
 import { copyText } from "./clipboard.ts";
 import { settingsControls } from "./Settings.ts";
 
@@ -54,6 +55,7 @@ export class Hud {
   private readonly board = new Leaderboard();
   private best?: PersonalBestEvent;
   private lobby?: Lobby;
+  private readonly minimap: Minimap;
 
   constructor(
     root: HTMLElement,
@@ -94,7 +96,7 @@ export class Hud {
         <span class="hp-num" data-ref="hpNum">100</span>
       </div>
 
-      <div class="ammo-panel">
+      <div class="ammo-panel" data-ref="ammoPanel">
         <div class="weapon-name" data-ref="weaponName"></div>
         <div class="ammo-count"><span class="mag" data-ref="mag"></span><span class="reserve" data-ref="reserve"></span></div>
         <div class="reload-bar" data-ref="reloadBar"><div class="fill" data-ref="reloadFill"></div></div>
@@ -161,6 +163,8 @@ export class Hud {
     `;
     root.append(this.el);
     for (const node of this.el.querySelectorAll<HTMLElement>("[data-ref]")) this.$[node.dataset.ref!] = node;
+    this.minimap = new Minimap(game.obstacles, game.arenaHalfSize);
+    this.$.ammoPanel!.before(this.minimap.el);
     this.$.endCard!.append(this.board.el);
     if (!game.solo) {
       this.lobby = new Lobby(game);
@@ -274,7 +278,7 @@ export class Hud {
     if (!state) return;
     this.$.end!.hidden = false;
     this.$.endTitle!.textContent = "Time's up!";
-    this.$.endSettings!.textContent = `${settingsLabel(state.difficulty, state.duration, state.energy)} · 2 stars at ${state.scoreStar.toLocaleString()}`;
+    this.$.endSettings!.textContent = `${settingsLabel(state.difficulty, state.duration, state.energy, state.friendlyFire)} · 2 stars at ${state.scoreStar.toLocaleString()}`;
     this.$.stars!.innerHTML = [0, 1, 2].map((i) => `<span class="star ${i < state.stars ? "on" : ""}" style="animation-delay:${0.3 + i * 0.25}s">★</span>`).join("");
     this.$.endScore!.textContent = `${state.solo ? "Score" : "Team score"} ${state.teamScore.toLocaleString()}`;
 
@@ -339,6 +343,7 @@ export class Hud {
     const minutes = state.duration / 60;
     const ranked = isRoundMinutes(minutes);
     this.board.el.hidden = !ranked;
+    this.board.setBoard(this.game.me?.member ? "members" : "public");
     if (ranked) void this.board.show(state.difficulty, minutes, state.energy, this.game.me?.name);
   }
 
@@ -360,6 +365,9 @@ export class Hud {
     this.updateAmmo();
     this.updatePrompt(me);
     this.updateCrosshair();
+    const playing = state.phase === "playing" || state.phase === "countdown";
+    this.setHidden(this.minimap.el, !playing);
+    if (playing) this.minimap.update(dt, { x: game.player.position.x, z: game.player.position.z, yaw: game.player.yaw }, state, game.network.sessionId);
 
     this.hurt = Math.max(0, this.hurt - dt / HURT_FADE);
     this.setStyle("hurt", "opacity", this.hurt.toFixed(2));
@@ -387,7 +395,7 @@ export class Hud {
     const showPause = (!game.input.locked && !game.finished && !inLobby) || this.lost;
     if (showPause && this.$.pause!.hidden) this.confirmLeave(false);
     this.setHidden(this.$.pause!, !showPause);
-    const settings = settingsLabel(state.difficulty, state.duration, state.energy);
+    const settings = settingsLabel(state.difficulty, state.duration, state.energy, state.friendlyFire);
     if (showPause && !this.lost) {
       const title = countdown > 0 ? `Starting in ${countdown}...` : "Ready?";
       this.set("pauseTitle", this.started ? (state.solo ? "Paused" : "Game menu") : title);

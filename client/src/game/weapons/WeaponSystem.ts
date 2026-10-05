@@ -13,17 +13,21 @@ import type { Input } from "../Input.ts";
 import type { PlayerController } from "../PlayerController.ts";
 import type { Bolts } from "../fx/Bolts.ts";
 import type { Particles } from "../fx/Particles.ts";
+import type { Scorches } from "../fx/Scorches.ts";
 import type { Sound } from "../fx/Sound.ts";
 import type { ZombieManager } from "../zombies/ZombieManager.ts";
 import type { ViewModel } from "./ViewModel.ts";
 
 /** Color, width and length in meters of each weapon's laser bolt. */
-export const BOLTS: Record<WeaponId, { color: string; width: number; length: number }> = {
-  pistol: { color: "#7ffff0", width: 0.014, length: 0.9 },
-  rifle: { color: "#ffc46b", width: 0.017, length: 1.5 },
+export const BOLTS: Record<WeaponId, { color: string; width: number; length: number; scorch: number }> = {
+  pistol: { color: "#7ffff0", width: 0.014, length: 0.9, scorch: 0.24 },
+  rifle: { color: "#ffc46b", width: 0.017, length: 1.5, scorch: 0.32 },
 };
+/** How far before and behind the collider a shot hit the visible surface is looked for, in meters. */
+export const SURFACE_SEARCH = { before: 1.5, behind: 0.6 };
 const ZOMBIE_IMPACT = new Color("#9dff7a");
 const WORLD_IMPACT = new Color("#ffd08a");
+const MATE_IMPACT = new Color("#ffae3d");
 /** A click this many seconds before the weapon is ready still fires. */
 const FIRE_BUFFER = 0.15;
 /** A reload key press is kept this long, so one made just before the weapon can reload still counts. */
@@ -46,10 +50,17 @@ export interface WeaponDeps {
   colliders: Box[];
   particles: Particles;
   bolts: Bolts;
+  scorches: Scorches;
   sound: Sound;
+  /** Where a ray meets the visible world; see `World.surfaceHit`. */
+  surface(origin: Vector3, dir: Vector3, near: number, far: number, point: Vector3, normal: Vector3): boolean;
+  /** The nearest teammate a ray hits. */
+  mates(origin: Vector3, dir: Vector3, maxDistance: number): { id: string; distance: number } | null;
+  friendlyFire(): boolean;
   onShoot(msg: ShootMessage): void;
   onSwitch(weapon: WeaponId): void;
   onHit(head: boolean): void;
+  onHitMate(id: string): void;
 }
 
 export class WeaponSystem {
@@ -68,6 +79,7 @@ export class WeaponSystem {
   private readonly up = new Vector3();
   private readonly muzzle = new Vector3();
   private readonly end = new Vector3();
+  private readonly normal = new Vector3();
 
   constructor(private readonly d: WeaponDeps) {
     this.reset();
@@ -245,9 +257,16 @@ export class WeaponSystem {
       this.dir.x, this.dir.y, this.dir.z,
       def.range, colliders,
     );
-    const hit = zombies.raycast(this.origin, this.dir, Math.min(def.range, worldDist));
-    const distance = hit ? hit.distance : Math.min(def.range, worldDist);
+    const zombie = zombies.raycast(this.origin, this.dir, Math.min(def.range, worldDist));
+    let distance = zombie ? zombie.distance : Math.min(def.range, worldDist);
+    // With friendly fire a teammate in the line of fire takes the shot; otherwise it passes through them.
+    const mate = this.d.friendlyFire() ? this.d.mates(this.origin, this.dir, distance) : null;
+    if (mate) distance = mate.distance;
+    const hit = mate ? null : zombie;
     this.end.copy(this.origin).addScaledVector(this.dir, distance);
+    // The colliders are boxes around the props; the bolt ends, and leaves its mark, on what is actually drawn.
+    const hitsWorld = !hit && !mate && worldDist <= def.range;
+    const marks = hitsWorld && this.d.surface(this.origin, this.dir, distance - SURFACE_SEARCH.before, distance + SURFACE_SEARCH.behind, this.end, this.normal);
 
     viewModel.fire();
     viewModel.muzzleWorld(this.muzzle);
@@ -255,6 +274,7 @@ export class WeaponSystem {
     player.addRecoil(def.recoil * (1 - 0.4 * viewModel.aimProgress), (Math.random() - 0.5) * def.recoil * 0.5);
 
     // The shot hits at once; the bolt is drawn flying there and its sparks appear when it arrives.
+    const bolt = BOLTS[this.current];
     const back = this.dir.clone().negate();
     const impact = this.end.clone();
     let sparks: (() => void) | undefined;
@@ -264,10 +284,17 @@ export class WeaponSystem {
       this.d.onHit(hit.head);
       const count = hit.head ? 22 : 12;
       sparks = () => particles.burst(impact, { count, color: ZOMBIE_IMPACT, speed: 3, life: 0.45, size: 0.035, direction: back, spread: 0.9, gravity: 4 });
-    } else if (worldDist <= def.range) {
-      sparks = () => particles.burst(impact, { count: 8, color: WORLD_IMPACT, speed: 2.5, life: 0.3, size: 0.025, direction: back, spread: 0.8, gravity: 9 });
+    } else if (mate) {
+      this.d.onHitMate(mate.id);
+      sparks = () => particles.burst(impact, { count: 10, color: MATE_IMPACT, speed: 2.5, life: 0.35, size: 0.03, direction: back, spread: 0.9, gravity: 5 });
+    } else if (hitsWorld) {
+      const normal = marks ? this.normal.clone() : undefined;
+      const { scorches } = this.d;
+      sparks = () => {
+        particles.burst(impact, { count: 8, color: WORLD_IMPACT, speed: 2.5, life: 0.3, size: 0.025, direction: normal ?? back, spread: 0.8, gravity: 9 });
+        if (normal) scorches.add(impact, normal, bolt.color, bolt.scorch);
+      };
     }
-    const bolt = BOLTS[this.current];
     bolts.spawn(this.muzzle, this.end, bolt.color, bolt.width, bolt.length, sparks);
 
     // Other players see the bolt leave from roughly where this player holds the gun.
@@ -277,6 +304,7 @@ export class WeaponSystem {
       origin: [gunOrigin.x, gunOrigin.y, gunOrigin.z],
       end: [this.end.x, this.end.y, this.end.z],
       hit: hit ? { zombie: hit.id, head: hit.head } : undefined,
+      hitPlayer: mate?.id,
     });
   }
 }

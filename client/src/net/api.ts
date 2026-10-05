@@ -1,4 +1,11 @@
-import { PARKING_LOT, type CreateSessionResponse, type JoinOptions, type LeaderboardResponse, type SessionInfo } from "@zombies/shared";
+import {
+  PARKING_LOT,
+  type CreateSessionResponse,
+  type JoinOptions,
+  type LeaderboardKind,
+  type LeaderboardResponse,
+  type SessionInfo,
+} from "@zombies/shared";
 
 const PLAYER_ID_KEY = "zombies.playerId";
 
@@ -17,13 +24,19 @@ export function playerId(): string {
   return id;
 }
 
+/** A failure whose message is meant for the player. */
+export class UserError extends Error {}
+
 export async function createSession(options: JoinOptions): Promise<CreateSessionResponse> {
   const res = await fetch("/api/sessions", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ ...options, playerId: playerId() }),
   });
-  if (!res.ok) throw new Error(`Could not create a session (HTTP ${res.status})`);
+  if (!res.ok) {
+    const message = ((await res.json().catch(() => null)) as { error?: string } | null)?.error;
+    throw message ? new UserError(message) : new Error(`Could not create a session (HTTP ${res.status})`);
+  }
   return res.json();
 }
 
@@ -37,10 +50,19 @@ export async function getLeaderboard(
   difficulty: string,
   minutes: number,
   energy: string,
+  board: LeaderboardKind,
   nickname = "",
   limit = 10,
 ): Promise<LeaderboardResponse | undefined> {
-  const params = new URLSearchParams({ level: PARKING_LOT.id, difficulty, minutes: String(minutes), energy, limit: String(limit), player: playerId() });
+  const params = new URLSearchParams({
+    level: PARKING_LOT.id,
+    difficulty,
+    minutes: String(minutes),
+    energy,
+    board,
+    limit: String(limit),
+    player: playerId(),
+  });
   if (nickname) params.set("name", nickname);
   try {
     const res = await fetch(`/api/leaderboard?${params}`);
