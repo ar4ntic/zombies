@@ -1,0 +1,8 @@
+# Files under /build carry a content hash in their name and never change.
+/build/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Models and textures keep their names when they are regenerated, so browsers may reuse them for a day
+# and then refresh them in the background.
+/assets/*
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800

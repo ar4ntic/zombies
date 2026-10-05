@@ -53,15 +53,21 @@ export class World {
 
   constructor(private readonly level: LevelDef) {}
 
-  async load() {
+  /**
+   * Loads the level. `onSky` runs as soon as the sky and the lights are in, which is enough to start drawing.
+   * The ground, buildings and props are only requested after that, so they do not share the connection with
+   * the sky, and appear as they arrive.
+   */
+  async load(onSky: () => void) {
     const hdri = await loadHdri(this.level.hdri);
     this.scene.background = hdri;
     this.scene.environment = hdri;
     this.scene.environmentIntensity = 0.7;
     this.scene.backgroundIntensity = 0.85;
     this.scene.fog = new FogExp2(new Color("#a58f80"), 0.009);
-
     this.addLights();
+    onSky();
+
     await Promise.all([this.addGround(), this.addStructures(), this.addProps(), this.addStreetLamps()]);
     this.addShadowProxy();
   }

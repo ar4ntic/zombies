@@ -85,6 +85,8 @@ export class Game {
   private lastFrameTime = 0;
   private cpuMs = 0;
   fps = 0;
+  /** Settles when everything a round needs is loaded; set by `load`. */
+  ready: Promise<void> = Promise.resolve();
   solo = false;
   onLeave?: () => void;
 
@@ -226,12 +228,25 @@ export class Game {
     return this.remotes.count + 1;
   }
 
-  async load() {
-    const [, cast] = await Promise.all([this.world.load(), preloadCast()]);
-    await this.zombies.warmUp(this.renderer.webgl, cast);
-    this.player.update(0, false);
-    this.timer.connect(document);
-    this.renderer.webgl.setAnimationLoop((time) => this.frame(time));
+  /**
+   * Resolves once the scene is on screen, which only needs the sky. The level and then the zombies keep
+   * loading behind the menu; `ready` resolves when a round can start without stalling.
+   */
+  load(): Promise<void> {
+    return new Promise((shown, failed) => {
+      this.ready = this.world
+        .load(() => {
+          this.player.update(0, false);
+          this.timer.connect(document);
+          this.renderer.webgl.setAnimationLoop((time) => this.frame(time));
+          shown();
+        })
+        .then(async () => {
+          this.renderer.onWorldSettings?.(this.renderer.quality);
+          await this.zombies.warmUp(this.renderer.webgl, await preloadCast());
+        });
+      this.ready.catch(failed);
+    });
   }
 
   async connect(name: string, skin: string, choice: SessionChoice, settings: GameSettings, testDuration?: number) {

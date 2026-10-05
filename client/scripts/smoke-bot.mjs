@@ -377,6 +377,11 @@ async function checkLobby(member) {
   host.send("settings", { minutes: 1 });
   host.send("settings", { energy: "infinite" });
   await waitFor("guest to see the new settings", () => guest.state.difficulty === "easy" && guest.state.duration === 60 && guest.state.energy === "infinite");
+  host.send("settings", { friendlyFire: true });
+  await waitFor("guest to see friendly fire on", () => guest.state.friendlyFire);
+  if ((await api(`/api/sessions/${host.code}`)).body?.friendlyFire !== true) failures.push("session info misses friendly fire");
+  host.send("settings", { friendlyFire: false });
+  await waitFor("guest to see friendly fire off", () => !guest.state.friendlyFire);
   if (guest.state.scoreStar === star || !lobby(guest)) failures.push("settings change did not update the star score or left the lobby");
 
   host.send("start", {});
@@ -432,7 +437,9 @@ async function checkLobby(member) {
   await waitFor("both back in the lobby", () => lobby(host) && lobby(guest));
   const scores = [...guest.state.players.values()].map((p) => p.score);
   if (scores.some((s) => s !== 0) || guest.state.teamScore !== 0) failures.push("scores not reset in the lobby");
-  if (guest.state.difficulty !== "easy" || guest.state.duration !== 60 || guest.state.energy !== "infinite") failures.push("lobby forgot the settings");
+  if (guest.state.difficulty !== "easy" || guest.state.duration !== 60 || guest.state.energy !== "infinite" || guest.state.friendlyFire) {
+    failures.push("lobby forgot the settings");
+  }
 
   host.send("start", {});
   await waitFor("second round", () => host.state.phase === "playing", 6000);

@@ -32,6 +32,7 @@ const FAR_DISTANCE = 32;
 const LOD_DISTANCES = [9, 22];
 const LOD_HYSTERESIS = 1;
 const MAX_BLOBS = 128;
+const WARM_UP_DEPTH = 100;
 const TAN_HALF_BASE_FOV = Math.tan(MathUtils.degToRad(75 / 2));
 const UPRIGHT = ZOMBIES.walker.hitbox;
 
@@ -110,7 +111,9 @@ export class ZombieManager {
         }
       });
     }
+    // The scene is already being drawn, so the zombie the shaders are compiled with stays below the ground.
     const view = await ZombieView.create(this.scene, "warmup", { type: "walker", x: 0, z: 0, rot: 0, anim: 0 } as ZombieState);
+    view.root.position.y = -WARM_UP_DEPTH;
     await renderer.compileAsync(this.scene, this.camera);
     view.dispose();
   }

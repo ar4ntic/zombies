@@ -7,6 +7,8 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- The sky is the first thing drawn; fetching it alongside the script puts the scene on screen sooner. -->
+    <link rel="preload" as="fetch" crossorigin="anonymous" href="/assets/hdri/suburban_parking_area.hdr" />
     <title>Zombie Breakout</title>
   </head>
   <body>
