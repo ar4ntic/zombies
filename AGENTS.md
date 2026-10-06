@@ -75,7 +75,7 @@ client/     Three.js game, menus, HUD (Vite, no UI framework)
                 (two-legged ZombieView, four-legged AnimalView), players (skins of the other
                 players), fx (bolts, burn marks, particles, sound)
   src/net/      Network (WebSocket + state decoding), api.ts (HTTP calls, player id), account.ts
-  src/ui/       Menu, Settings, Account, CharacterPicker, Lobby, Hud, Minimap, Leaderboard, PerfOverlay
+  src/ui/       Menu, Backdrop, Settings, Account, CharacterPicker, Lobby, Hud, Minimap, Leaderboard, PerfOverlay
   public/       favicon.svg, logo.svg and the PNG icons rendered from them
   scripts/      smoke-bot.mjs
 worker/     Cloudflare Worker
@@ -174,6 +174,10 @@ scripts/    Asset pipeline (fetch-assets, zombie LODs, Meshy generation of zombi
   fallback for non-HTTPS origins, where `navigator.clipboard` does not exist), `ui/Settings.ts`
   (graphics quality, mouse sensitivity and its "Try it out" look test, used by the main menu and
   the pause menu).
+- `ui/Backdrop.ts` is the illustrated night street behind the main menu: inline SVG and CSS only, so it
+  is on screen before the level has loaded. `main.ts` shows it with the menu and fades it out once a
+  session is joined; the lobby and the pause menu show the 3D scene. Its moving parts are separate
+  elements that only animate `transform` or `opacity`; keep it that way so the scenery is not repainted.
 - Per-browser preferences live in localStorage under `zombies.*` keys: `nickname`, `difficulty`,
   `minutes`, `energy`, `friendlyFire`, `skin`, `graphics`, `sensitivity`, `playerId`. Difficulty,
   round length, energy mode and friendly fire are round settings (the host's apply to a team);
@@ -200,11 +204,29 @@ scripts/    Asset pipeline (fetch-assets, zombie LODs, Meshy generation of zombi
 ## Assets
 
 Models, textures and the HDRI in `client/public/assets` are committed and produced by the scripts
-in `scripts/` (`pnpm assets`, `node scripts/zombie-lods.mjs`, `scripts/meshy/`). The logo and
+in `scripts/` (`pnpm assets`, `node scripts/zombie-lods.mjs`, `node scripts/convert-arms.mjs`,
+`scripts/meshy/`). The logo and
 favicon are the hand-written `client/public/logo.svg` and `favicon.svg`; `node scripts/make-icons.mjs`
 renders the PNG icons from the favicon. Do not hand-edit
 the binaries; change the script and regenerate. Third-party credits are in
 `client/public/assets/CREDITS.txt` and must stay current when art is added.
+
+### First-person arms
+
+The player's own arms are a rigged public-domain model (`models/fps_arms.glb` with the skin texture
+`fps_arms_skin.webp`), downloaded and converted by `node scripts/convert-arms.mjs`.
+`weapons/Arms.ts` closes its hands around a weapon from the grips in `weapons/gunModels.ts`. A grip
+says where the hand is (what it closes around, where the palm faces, the line of the knuckles) and
+how far fingers and thumb may bend; each finger joint then closes until the finger touches one of
+the boxes the weapon is built from (`GunModel.solids`), so a changed weapon part is gripped without
+new numbers, as long as the palm itself still rests on it. Sleeves and gloves are painted per skin
+in the material's shader, which draws the line between them per pixel. An arm follows its hand as a
+rigid piece, so a grip also decides where the arm leaves the picture; a grip with a `forearm`
+direction bends the wrist instead. A weapon without a left grip is held in one hand.
+
+Grips are easiest to judge from the side: with `?debug`, turn and move `game.viewModel.root` (the
+weapon and arms hang on the camera) and re-pose a hand with `game.viewModel.arms.get(id).pose(side, grip)`
+using a new grip object, since how far a grip closed is remembered per object.
 
 ### Characters (Meshy)
 
@@ -228,8 +250,9 @@ All zombie characters and player skins in `client/public/assets/characters` were
   moves as one piece.
 - `--fresh` makes the generator forget a character's finished steps and pay for all of them again,
   for when a result has to be redone with a changed prompt.
-- A player skin also needs its entry in `shared/src/skins.ts` (id, label, colors of the first-person
-  arms). The character picker only offers skins whose portrait exists; a player whose skin model is
+- A player skin also needs its entry in `shared/src/skins.ts`: id, label, outfit color, and what
+  the first-person arms wear, taken from the generated model: a sleeve or glove color, or `null`
+  for bare skin. The character picker only offers skins whose portrait exists; a player whose skin model is
   missing is shown as a plain stand-in.
 - The API token is read from `MESHY_API_KEY` in the `.env` file at the repo root (or from the
   environment). `.env` is gitignored and also holds Cloudflare credentials: never commit it, and

@@ -9,8 +9,9 @@ import {
   Vector3,
   type PerspectiveCamera,
 } from "three";
-import { WEAPON_ORDER, type SkinDef, type WeaponId } from "@zombies/shared";
-import { armMaterials, buildGun, type GunModel } from "./gunModels.ts";
+import { DEFAULT_SKIN, WEAPON_ORDER, skinDef, type SkinDef, type WeaponId } from "@zombies/shared";
+import { Arms } from "./Arms.ts";
+import { buildGun, type GunModel } from "./gunModels.ts";
 
 /**
  * The weapon is modeled at real size but drawn scaled down close to the camera, which
@@ -42,7 +43,11 @@ export interface ViewModelPose {
 export class ViewModel {
   private readonly root = new Group();
   private readonly guns = new Map<WeaponId, GunModel>();
-  private readonly arms = armMaterials();
+  /** The arms holding each weapon, once their model has loaded. */
+  private readonly arms = new Map<WeaponId, Arms>();
+  private skin = skinDef(DEFAULT_SKIN);
+  private readonly reach = new Vector3();
+  private readonly slide = new Vector3();
   private current: WeaponId = "pistol";
   private readonly flash: Sprite;
   private readonly flashLight = new PointLight("#ffffff", 0, 6, 2);
@@ -60,7 +65,7 @@ export class ViewModel {
     this.root.scale.setScalar(VIEW_SCALE);
     camera.add(this.root);
     for (const id of WEAPON_ORDER) {
-      const gun = buildGun(id, this.arms);
+      const gun = buildGun(id);
       gun.group.visible = id === this.current;
       this.root.add(gun.group);
       this.guns.set(id, gun);
@@ -72,12 +77,26 @@ export class ViewModel {
     this.flash.visible = false;
     this.root.add(this.flash);
     this.root.add(this.flashLight);
+    // Without the arms model the weapons are simply shown without hands.
+    this.addArms().catch((err) => console.warn("First-person arms unavailable", err));
   }
 
-  /** Dresses the arms in the sleeves and gloves of the player's skin. */
+  private async addArms() {
+    for (const [id, gun] of this.guns) {
+      const arms = await Arms.create(gun.solids);
+      arms.setSkin(this.skin);
+      arms.pose("R", gun.grips.R);
+      if (gun.grips.L) arms.pose("L", gun.grips.L);
+      else arms.hide("L");
+      gun.group.add(arms.object);
+      this.arms.set(id, arms);
+    }
+  }
+
+  /** Gives the arms the forearms and hands of the player's skin. */
   setArms(skin: SkinDef) {
-    this.arms.sleeve.color.set(skin.sleeve);
-    this.arms.glove.color.set(skin.glove);
+    this.skin = skin;
+    for (const arms of this.arms.values()) arms.setSkin(skin);
   }
 
   get aimProgress(): number {
@@ -138,13 +157,16 @@ export class ViewModel {
 
     const r = pose.reload;
     const out = r < 0 || r >= CAPSULE_SEATED ? 0 : r < CAPSULE_OUT ? r / CAPSULE_OUT : r < CAPSULE_IN ? 1 : (CAPSULE_SEATED - r) / (CAPSULE_SEATED - CAPSULE_IN);
-    gun.capsule.position.copy(gun.capsuleRest);
-    gun.capsule.position.y -= out * CAPSULE_DROP;
+    // The capsule slides out along its own length.
+    gun.capsule.position.copy(gun.capsuleRest).addScaledVector(this.slide.set(0, -1, 0).applyEuler(gun.capsule.rotation), out * CAPSULE_DROP);
     gun.capsule.visible = r < CAPSULE_OUT || r >= CAPSULE_IN;
     gun.capsuleGlow.emissiveIntensity = r >= 0 ? (r < CAPSULE_IN ? 0.1 : 3) : 0.2 + 2.8 * pose.charge;
     // The supporting hand lets go, reaches down for the new capsule and comes back with it.
     const reach = r < 0 ? 0 : Math.sin(Math.PI * Math.min(1, r / CAPSULE_SEATED));
-    gun.supportArm?.position.set(-reach * 0.05, -reach * 0.16, reach * 0.1);
+    if (gun.grips.L && (reach > 0 || this.reach.lengthSq() > 0)) {
+      this.reach.set(-reach * 0.05, -reach * 0.16, reach * 0.1);
+      this.arms.get(this.current)?.pose("L", gun.grips.L, this.reach);
+    }
 
     this.flashTimer -= dt;
     const flashing = this.flashTimer > 0;

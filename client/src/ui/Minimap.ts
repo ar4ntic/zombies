@@ -119,7 +119,7 @@ export class Minimap {
       const [x, y] = project(player.x, player.z);
       const distance = Math.hypot(x, y);
       const k = distance > rim ? rim / distance : 1;
-      this.arrow(x * k, y * k, view.yaw - player.yaw, skinDef(player.skin).sleeve, player.dead);
+      this.arrow(x * k, y * k, view.yaw - player.yaw, skinDef(player.skin).color, player.dead);
     }
     this.arrow(0, 0, 0, SELF_COLOR, false);
     ctx.restore();
