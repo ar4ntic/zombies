@@ -11,10 +11,10 @@ export function saveSkinChoice(skin: string) {
   localStorage.setItem(SKIN_KEY, skin);
 }
 
-/** Portrait of a skin. The sleeve color shows through while the picture loads or when it is missing. */
+/** Portrait of a skin. Its outfit color shows through while the picture loads or when it is missing. */
 export function skinAvatar(skin: string): string {
   const def = skinDef(skin);
-  return `<span class="avatar" style="background-color:${def.sleeve}"><img src="/assets/characters/thumbs/${def.id}.webp" alt="" loading="lazy" onerror="this.remove()" /></span>`;
+  return `<span class="avatar" style="background-color:${def.color}"><img src="/assets/characters/thumbs/${def.id}.webp" alt="" loading="lazy" onerror="this.remove()" /></span>`;
 }
 
 /** Grid of all skins as radio buttons; `onPick` runs when another one is chosen. Skins without a portrait are not offered. */

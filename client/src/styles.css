@@ -16,7 +16,7 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: #000;
+  background: #050b09;
 }
 
 #game {
@@ -35,6 +35,329 @@ body {
 
 #ui > * {
   pointer-events: auto;
+}
+
+/*
+ * The night street behind the main menu. One stage unit (--u) is a 1600th of the stage's width; the stage
+ * keeps its 16:9 shape, covers the viewport and stands on its lower edge.
+ */
+.backdrop {
+  --u: max(100vw / 1600, 100vh / 900);
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  background: #050b09;
+  transition: opacity 0.5s ease;
+}
+
+.backdrop.leaving {
+  opacity: 0;
+}
+
+.bd-stage {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: calc(var(--u) * 1600);
+  height: calc(var(--u) * 900);
+  margin-left: calc(var(--u) * -800);
+}
+
+.bd-sky,
+.bd-layer,
+.bd-vignette {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.bd-sky {
+  background: linear-gradient(#050b09 0%, #08170f 28%, #0f2e20 52%, #1d5238 68%, #2f7a4f 77%);
+}
+
+.bd-vignette {
+  background:
+    radial-gradient(ellipse at 50% 55%, rgba(0, 0, 0, 0) 45%, rgba(0, 0, 0, 0.45) 100%),
+    linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0) 22%);
+}
+
+.bd-stars {
+  animation: bd-twinkle var(--t) ease-in-out var(--d) infinite alternate;
+}
+
+.bd-cloud,
+.bd-fog,
+.bd-walker {
+  position: absolute;
+  left: 0;
+  bottom: calc(var(--u) * var(--y));
+  will-change: transform;
+}
+
+.bd-cloud {
+  width: calc(var(--u) * var(--w));
+  opacity: 0.85;
+  animation: bd-drift var(--t) linear var(--d) infinite;
+}
+
+.bd-fog {
+  width: calc(var(--u) * 900);
+  height: calc(var(--u) * 240);
+  background: radial-gradient(closest-side, rgba(125, 255, 106, 0.15), rgba(125, 255, 106, 0));
+  animation: bd-drift var(--t) linear var(--d) infinite;
+}
+
+.bd-cloud svg,
+.bd-walker svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.bd-flicker {
+  animation: bd-flicker 7s linear infinite;
+}
+
+.bd-tv {
+  animation: bd-tv 2.6s steps(1) infinite;
+}
+
+.bd-peek {
+  animation: bd-peek 23s steps(1) infinite;
+}
+
+.bd-cat {
+  position: absolute;
+  left: calc(var(--u) * 1210);
+  bottom: calc(var(--u) * 422);
+  width: calc(var(--u) * 56);
+  overflow: visible;
+}
+
+.bd-cat .bd-tail {
+  transform-origin: 41px 40px;
+  animation: bd-wag 2.4s ease-in-out infinite alternate;
+}
+
+.bd-walker {
+  width: calc(var(--u) * var(--w));
+  animation: bd-cross var(--t) linear var(--d) infinite;
+}
+
+.bd-walker.back {
+  animation-direction: reverse;
+}
+
+.bd-walker.back svg {
+  transform: scaleX(-1);
+}
+
+/* The far side of the street is out of the lamps' reach. */
+.bd-walker.far {
+  filter: brightness(0.5) saturate(0.7);
+}
+
+.bd-bob {
+  animation: bd-bob calc(var(--step) / 2) ease-in-out var(--d) infinite alternate;
+}
+
+.bd-leg {
+  transform-origin: 48px 102px;
+  animation: bd-swing var(--step) ease-in-out var(--d) infinite alternate;
+}
+
+.bd-arm {
+  transform-origin: 48px 70px;
+  animation: bd-reach calc(var(--step) * 1.7) ease-in-out var(--d) infinite alternate;
+}
+
+.bd-head {
+  transform-origin: 52px 58px;
+  animation: bd-nod calc(var(--step) * 2) ease-in-out var(--d) infinite alternate;
+}
+
+.bd-leg.b,
+.bd-arm.b,
+.bd-paw.b {
+  animation-direction: alternate-reverse;
+}
+
+.bd-paw {
+  transform-box: fill-box;
+  transform-origin: 50% 10%;
+  animation: bd-swing var(--step) ease-in-out infinite alternate;
+}
+
+.dog .bd-head {
+  transform-origin: 92px 46px;
+}
+
+.dog .bd-tail {
+  transform-origin: 30px 46px;
+  animation: bd-wag 0.22s ease-in-out infinite alternate;
+}
+
+.bd-spark {
+  position: absolute;
+  left: calc(var(--u) * var(--x));
+  bottom: calc(var(--u) * var(--y));
+  width: calc(var(--u) * var(--s));
+  height: calc(var(--u) * var(--s));
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 calc(var(--u) * 9) calc(var(--u) * 2) rgba(125, 255, 106, 0.55);
+  opacity: 0;
+  animation: bd-float var(--t) ease-in-out var(--d) infinite;
+}
+
+@keyframes bd-twinkle {
+  from {
+    opacity: 0.25;
+  }
+}
+
+@keyframes bd-drift {
+  from {
+    transform: translateX(calc(var(--u) * -900));
+  }
+  to {
+    transform: translateX(calc(var(--u) * 1600));
+  }
+}
+
+@keyframes bd-cross {
+  from {
+    transform: translateX(calc(var(--u) * -170));
+  }
+  to {
+    transform: translateX(calc(var(--u) * 1640));
+  }
+}
+
+@keyframes bd-flicker {
+  62%,
+  63.5%,
+  66% {
+    opacity: 0.2;
+  }
+  62.8%,
+  64.6%,
+  67% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 0.55;
+  }
+  89% {
+    opacity: 1;
+  }
+}
+
+@keyframes bd-tv {
+  0% {
+    opacity: 0.75;
+  }
+  18% {
+    opacity: 0.4;
+  }
+  31% {
+    opacity: 0.9;
+  }
+  52% {
+    opacity: 0.55;
+  }
+  70% {
+    opacity: 0.8;
+  }
+  84% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes bd-peek {
+  0% {
+    opacity: 0;
+  }
+  58% {
+    opacity: 1;
+  }
+  79% {
+    opacity: 0;
+  }
+}
+
+@keyframes bd-wag {
+  from {
+    transform: rotate(-9deg);
+  }
+  to {
+    transform: rotate(11deg);
+  }
+}
+
+@keyframes bd-bob {
+  to {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes bd-swing {
+  from {
+    transform: rotate(-21deg);
+  }
+  to {
+    transform: rotate(21deg);
+  }
+}
+
+@keyframes bd-reach {
+  from {
+    transform: rotate(-7deg);
+  }
+  to {
+    transform: rotate(5deg);
+  }
+}
+
+@keyframes bd-nod {
+  from {
+    transform: rotate(-7deg);
+  }
+  to {
+    transform: rotate(6deg);
+  }
+}
+
+@keyframes bd-float {
+  0% {
+    transform: translate(0, 0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate(calc(var(--u) * 26), calc(var(--u) * -70));
+    opacity: 0.45;
+  }
+  85% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translate(calc(var(--u) * -12), calc(var(--u) * -150));
+    opacity: 0;
+  }
+}
+
+/* Paused, not removed: the starting offsets are what spreads the figures over the street. */
+@media (prefers-reduced-motion: reduce) {
+  .backdrop * {
+    animation-play-state: paused !important;
+  }
 }
 
 .menu {
@@ -331,7 +654,8 @@ body {
 }
 
 /* The menus step aside while the mouse sensitivity is tried out, so the scene is in full view. */
-body.look-testing #ui {
+body.look-testing #ui,
+body.look-testing .backdrop {
   visibility: hidden;
 }
 

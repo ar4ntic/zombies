@@ -1,22 +1,24 @@
 export interface SkinDef {
   id: string;
   label: string;
-  /** Sleeve and glove colors of the first-person arms. */
-  sleeve: string;
-  glove: string;
+  /** Color of the outfit, which marks the player on the map and on their name tag. */
+  color: string;
+  /** What the first-person arms wear, as on the skin's model: the color of a sleeve or glove, or null for bare skin. */
+  forearm: string | null;
+  hand: string | null;
 }
 
 export const SKINS: SkinDef[] = [
-  { id: "player_ranger", label: "Ranger", sleeve: "#4f6b3a", glove: "#3a2c1f" },
-  { id: "player_mechanic", label: "Mechanic", sleeve: "#2f5d8c", glove: "#2a2a2e" },
-  { id: "player_astronaut", label: "Astronaut", sleeve: "#e8e8ec", glove: "#e07b2c" },
-  { id: "player_skater", label: "Skater", sleeve: "#c94f7c", glove: "#f1c9a5" },
-  { id: "player_firefighter", label: "Firefighter", sleeve: "#d9a520", glove: "#2a2a2e" },
-  { id: "player_pilot", label: "Pilot", sleeve: "#6b4a2f", glove: "#3a2c1f" },
-  { id: "player_explorer", label: "Explorer", sleeve: "#b89a63", glove: "#8d5a3b" },
-  { id: "player_medic", label: "Medic", sleeve: "#2fa39a", glove: "#dfe9f0" },
-  { id: "player_engineer", label: "Engineer", sleeve: "#e8792b", glove: "#c9c9cf" },
-  { id: "player_scientist", label: "Scientist", sleeve: "#f2f2f5", glove: "#7d5bc4" },
+  { id: "player_ranger", label: "Ranger", color: "#4f8a3c", forearm: "#4f8a3c", hand: null },
+  { id: "player_mechanic", label: "Mechanic", color: "#2f5d8c", forearm: null, hand: "#26262a" },
+  { id: "player_astronaut", label: "Astronaut", color: "#e8e8ec", forearm: "#e8e8ec", hand: "#e07b2c" },
+  { id: "player_skater", label: "Skater", color: "#d9538a", forearm: "#d9538a", hand: null },
+  { id: "player_firefighter", label: "Firefighter", color: "#e0b020", forearm: "#e0b020", hand: "#2a2a2e" },
+  { id: "player_pilot", label: "Pilot", color: "#8a5632", forearm: "#8a5632", hand: "#3a2c1f" },
+  { id: "player_explorer", label: "Explorer", color: "#b89a63", forearm: null, hand: null },
+  { id: "player_medic", label: "Medic", color: "#2fa39a", forearm: null, hand: "#f1f4f7" },
+  { id: "player_engineer", label: "Engineer", color: "#e8792b", forearm: null, hand: "#55585e" },
+  { id: "player_scientist", label: "Scientist", color: "#7d5bc4", forearm: "#f2f2f5", hand: "#7d5bc4" },
 ];
 
 export const DEFAULT_SKIN = SKINS[0]!.id;

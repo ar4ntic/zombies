@@ -3,6 +3,7 @@ import { isGraphicsSetting } from "./engine/Renderer.ts";
 import { Game } from "./game/Game.ts";
 import { accountApi } from "./net/account.ts";
 import { UserError } from "./net/api.ts";
+import { Backdrop } from "./ui/Backdrop.ts";
 import { showMenu, showMessage, type MenuStart } from "./ui/Menu.ts";
 import { loadGraphics, loadSensitivity } from "./ui/Settings.ts";
 
@@ -21,8 +22,10 @@ const graphics = isGraphicsSetting(requestedQuality) ? requestedQuality : loadGr
 const game = new Game(canvas, ui, graphics, params.has("debug"));
 game.setSensitivity(loadSensitivity());
 if (debug) Object.assign(window, { game });
-const loading = showMessage(ui, "Loading...");
-void game.load().finally(() => loading.remove());
+// The level loads behind the backdrop, which stays up until a session is joined.
+const backdrop = new Backdrop();
+ui.before(backdrop.el);
+void game.load();
 
 game.onLeave = () => {
   history.replaceState(null, "", `/${location.search}`);
@@ -41,6 +44,7 @@ async function mailLink(): Promise<MenuStart> {
 }
 
 async function play(invite: string | null, error?: string, start: MenuStart = {}) {
+  backdrop.show();
   const { name, choice, settings, skin } = await showMenu(ui, game, invite, error, start);
   game.sound.unlock();
   // The menu is usable before the level and the zombies have finished loading.
@@ -48,6 +52,7 @@ async function play(invite: string | null, error?: string, start: MenuStart = {}
   try {
     await game.ready.finally(() => waiting.remove());
     await game.connect(name, skin, choice, settings, testDuration);
+    backdrop.hide();
     if (choice.mode !== "solo") history.replaceState(null, "", `/join/${game.network.sessionCode}${location.search}`);
     if (!game.inLobby) game.input.lock();
   } catch (err) {

@@ -116,6 +116,11 @@ export function settingsSelectors(settings: GameSettings): string {
     <span class="setting-hint">Limited energy: collect the capsules lying around the arena. Friendly fire: your shots also hurt teammates.</span>`;
 }
 
+/** The game behind the menu: its device settings, and the first-person arms that preview the chosen skin. */
+export interface MenuHost extends SettingsTarget {
+  showSkin(skin: string): void;
+}
+
 /** What the menu opens with after following a link from an account mail. */
 export interface MenuStart {
   /** Shown above the buttons, e.g. the outcome of confirming an email address. */
@@ -126,7 +131,7 @@ export interface MenuStart {
 
 export function showMenu(
   root: HTMLElement,
-  device: SettingsTarget,
+  device: MenuHost,
   inviteCode: string | null,
   errorMessage?: string,
   start: MenuStart = {},
@@ -187,11 +192,13 @@ export function showMenu(
     characterButton.innerHTML = `${skinAvatar(skin)}<span class="label">${skinDef(skin).label}</span><span class="change">Change character</span>`;
   };
   showCharacter();
+  device.showSkin(skin);
   characterView.querySelector(".tagline")!.after(
     characterPicker(skin, (picked) => {
       skin = picked;
       saveSkinChoice(skin);
       showCharacter();
+      device.showSkin(skin);
     }),
   );
   const nameInput = panel.querySelector<HTMLInputElement>('input[name="nickname"]')!;

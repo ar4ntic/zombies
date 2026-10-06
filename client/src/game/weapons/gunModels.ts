@@ -3,10 +3,10 @@ import {
   Color,
   CylinderGeometry,
   Group,
+  Matrix4,
   Mesh,
   MeshPhysicalMaterial,
   MeshStandardMaterial,
-  Quaternion,
   SphereGeometry,
   Vector3,
   type BufferGeometry,
@@ -14,19 +14,7 @@ import {
 } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import type { WeaponId } from "@zombies/shared";
-
-/** Materials of the first-person arms; one pair is shared by all weapons so a skin change recolors them at once. */
-export interface ArmMaterials {
-  sleeve: MeshStandardMaterial;
-  glove: MeshStandardMaterial;
-}
-
-export function armMaterials(): ArmMaterials {
-  return {
-    sleeve: new MeshStandardMaterial({ color: "#4f6b3a", roughness: 0.85 }),
-    glove: new MeshStandardMaterial({ color: "#3a2c1f", roughness: 0.6 }),
-  };
-}
+import type { GripPose, Solid } from "./Arms.ts";
 
 export interface GunModel {
   group: Group;
@@ -40,8 +28,10 @@ export interface GunModel {
   capsuleGlow: MeshStandardMaterial;
   /** Color of the bolt and the muzzle glow. */
   color: string;
-  /** The supporting arm, which fetches the new capsule while reloading. Missing on weapons built without arms. */
-  supportArm?: Group;
+  /** How the hands hold the weapon. A left one supports it and fetches the new capsule while reloading. */
+  grips: { R: GripPose; L?: GripPose };
+  /** The boxes the weapon is made of, which the fingers close around. */
+  solids: Solid[];
 }
 
 const gunmetal = new MeshPhysicalMaterial({ color: "#2b2f36", metalness: 0.85, roughness: 0.32, clearcoat: 0.5, clearcoatRoughness: 0.25 });
@@ -76,61 +66,17 @@ function capsule(group: Group, color: string, radius: number, length: number, x:
   return { capsule: holder, capsuleRest: holder.position.clone(), capsuleGlow: glass };
 }
 
-const UP = new Vector3(0, 1, 0);
-
-/** Tapered tube from one point to another. */
-function limb(group: Group, material: Material, from: Vector3, to: Vector3, fromRadius: number, toRadius: number) {
-  const axis = to.clone().sub(from);
-  const length = axis.length();
-  const mesh = new Mesh(new CylinderGeometry(toRadius, fromRadius, length, 14), material);
-  mesh.position.copy(from).addScaledVector(axis, 0.5);
-  mesh.quaternion.copy(new Quaternion().setFromUnitVectors(UP, axis.divideScalar(length)));
-  group.add(mesh);
-}
-
-const FINGERS = 4;
-
-/**
- * A gloved hand at `hand` with a sleeved forearm running back to `elbow`, which lies outside the view.
- * `grip` is the size of the fist around whatever it holds and `tilt` its rotation about X; with `fingers`
- * they curl around the front of it.
- */
-function arm(materials: ArmMaterials, hand: Vector3, elbow: Vector3, grip: Vector3, tilt: number, fingers: boolean): Group {
-  const group = new Group();
-  const fist = new Group();
-  fist.position.copy(hand);
-  fist.rotation.x = tilt;
-  group.add(fist);
-  part(fist, rbox(grip.x, grip.y, grip.z, Math.min(grip.x, grip.y, grip.z) * 0.35), materials.glove, 0, 0, 0);
-  if (fingers) {
-    const height = grip.y / FINGERS;
-    const finger = rbox(grip.x * 1.12, height * 0.84, grip.z * 0.5, height * 0.3);
-    for (let i = 0; i < FINGERS; i++) part(fist, finger, materials.glove, 0, grip.y / 2 - height * (i + 0.5), -grip.z * 0.34);
-    part(fist, rbox(grip.x * 0.34, grip.y * 0.3, grip.z * 0.8, grip.x * 0.12), materials.glove, -grip.x * 0.55, grip.y * 0.34, -grip.z * 0.08);
-  }
-  const towardsElbow = elbow.clone().sub(hand).normalize();
-  const wrist = hand.clone().addScaledVector(towardsElbow, grip.z * 0.4);
-  const cuff = wrist.clone().addScaledVector(towardsElbow, 0.035);
-  limb(group, materials.glove, wrist, cuff, 0.03, 0.033);
-  limb(group, materials.sleeve, cuff, cuff.clone().addScaledVector(towardsElbow, 0.012), 0.043, 0.043);
-  limb(group, materials.sleeve, cuff, elbow, 0.038, 0.052);
-  return group;
-}
-
-function pistol(arms?: ArmMaterials): GunModel {
+function pistol(): Omit<GunModel, "solids"> {
   const g = new Group();
-  let supportArm: Group | undefined;
-  if (arms) {
-    g.add(arm(arms, new Vector3(0.004, -0.058, 0.026), new Vector3(0.3, -0.32, 0.36), new Vector3(0.05, 0.085, 0.07), 0.25, true));
-    supportArm = arm(arms, new Vector3(-0.03, -0.078, 0.02), new Vector3(-0.36, -0.3, 0.3), new Vector3(0.05, 0.06, 0.075), 0.25, false);
-    g.add(supportArm);
-  }
   const color = "#3fffe8";
   const accent = glow(color, 1.4);
   part(g, rbox(0.034, 0.042, 0.2, 0.007), gunmetal, 0, 0.03, -0.06);
   part(g, rbox(0.03, 0.026, 0.17), polymer, 0, 0.002, -0.05);
-  part(g, rbox(0.03, 0.105, 0.046, 0.008), polymer, 0, -0.055, 0.02, 0.25);
-  part(g, rbox(0.01, 0.025, 0.035, 0.003), polymer, 0, -0.022, -0.035);
+  part(g, rbox(0.03, 0.105, 0.046, 0.008), polymer, 0, -0.055, 0.018, -0.22);
+  // The trigger guard is a loop: the index finger reaches through it to the trigger.
+  part(g, rbox(0.008, 0.028, 0.005, 0.002), polymer, 0, -0.0235, -0.064);
+  part(g, rbox(0.008, 0.005, 0.058, 0.002), polymer, 0, -0.036, -0.038);
+  part(g, rbox(0.004, 0.016, 0.004, 0.0015), trim, 0, -0.019, -0.03, 0.25);
   part(g, barrel(0.009, 0.035), trim, 0, 0.03, -0.17);
   part(g, barrel(0.013, 0.012), glow(color, 2.2), 0, 0.03, -0.184);
   part(g, new BoxGeometry(0.002, 0.008, 0.13), accent, 0.0175, 0.034, -0.07);
@@ -144,20 +90,24 @@ function pistol(arms?: ArmMaterials): GunModel {
     muzzle: new Vector3(0, 0.03, -0.19),
     hip: new Vector3(0.14, -0.13, -0.34),
     ads: new Vector3(0, -0.06, -0.26),
-    ...capsule(g, color, 0.011, 0.05, 0, -0.112, 0.034, 0.25),
+    ...capsule(g, color, 0.011, 0.05, 0, -0.116, 0.032, -0.22),
     color,
-    supportArm,
+    grips: {
+      // Held in one hand: a second one around the same grip only covers the first. The hand stands upright against
+      // the right side, turned a little so that the wrist is behind the grip and the thumb can cross to the left side.
+      R: {
+        at: new Vector3(0.01, -0.0805, 0.028),
+        palm: new Vector3(-0.989, 0, -0.149),
+        knuckles: new Vector3(0, -1, 0),
+        curl: [1.4, 1.6, 1.2],
+        thumb: [0.8, 1.2],
+      },
+    },
   };
 }
 
-function rifle(arms?: ArmMaterials): GunModel {
+function rifle(): Omit<GunModel, "solids"> {
   const g = new Group();
-  let supportArm: Group | undefined;
-  if (arms) {
-    g.add(arm(arms, new Vector3(0.004, -0.075, 0.005), new Vector3(0.24, -0.34, 0.42), new Vector3(0.052, 0.085, 0.07), 0.3, true));
-    supportArm = arm(arms, new Vector3(0, -0.038, -0.3), new Vector3(-0.36, -0.3, 0.2), new Vector3(0.066, 0.05, 0.09), 0, false);
-    g.add(supportArm);
-  }
   const color = "#ffa33d";
   const accent = glow(color, 1.6);
   part(g, rbox(0.05, 0.07, 0.32, 0.008), gunmetal, 0, 0, -0.08);
@@ -166,7 +116,7 @@ function rifle(arms?: ArmMaterials): GunModel {
   part(g, barrel(0.016, 0.03), gunmetal, 0, 0.004, -0.52);
   part(g, barrel(0.019, 0.01), glow(color, 2.4), 0, 0.004, -0.538);
   part(g, rbox(0.04, 0.065, 0.16, 0.01), polymer, 0, -0.012, 0.15);
-  part(g, rbox(0.032, 0.09, 0.04, 0.008), polymer, 0, -0.07, 0.0, 0.3);
+  part(g, rbox(0.032, 0.112, 0.04, 0.008), polymer, 0, -0.08, 0.003, -0.3);
   part(g, rbox(0.036, 0.03, 0.06, 0.006), gunmetal, 0, -0.04, -0.12);
   part(g, new BoxGeometry(0.024, 0.008, 0.22), trim, 0, 0.039, -0.08);
   part(g, new BoxGeometry(0.002, 0.01, 0.26), accent, 0.0255, 0.012, -0.1);
@@ -176,6 +126,9 @@ function rifle(arms?: ArmMaterials): GunModel {
   part(g, new BoxGeometry(0.004, 0.03, 0.006), gunmetal, -0.016, 0.068, -0.05);
   part(g, new BoxGeometry(0.036, 0.004, 0.006), gunmetal, 0, 0.084, -0.05);
   part(g, new SphereGeometry(0.0018, 8, 6), glow("#ff3b3b", 10), 0, 0.07, -0.05);
+  // The trigger guard runs from the capsule's housing back to the grip.
+  part(g, rbox(0.01, 0.005, 0.068, 0.002), polymer, 0, -0.058, -0.057);
+  part(g, rbox(0.004, 0.016, 0.004, 0.0015), trim, 0, -0.043, -0.05, 0.25);
   return {
     group: g,
     muzzle: new Vector3(0, 0.004, -0.54),
@@ -183,16 +136,41 @@ function rifle(arms?: ArmMaterials): GunModel {
     ads: new Vector3(0, -0.07, -0.24),
     ...capsule(g, color, 0.02, 0.1, 0, -0.1, -0.12, -0.15),
     color,
-    supportArm,
+    grips: {
+      R: {
+        at: new Vector3(0.011, -0.1027, 0.0142),
+        palm: new Vector3(-0.989, 0, -0.149),
+        knuckles: new Vector3(0, -1, 0),
+        curl: [1.4, 1.6, 1.2],
+        thumb: [0.8, 1.2],
+      },
+      // The supporting hand cups the fore-end from below: the fingers reach under it and up its right side, the
+      // thumb lies against the left one. The wrist is bent so that the arm comes up from the lower left.
+      L: {
+        at: new Vector3(-0.012, -0.017, -0.31),
+        palm: new Vector3(0, 1, 0),
+        knuckles: new Vector3(0.5, 0, 0.87),
+        curl: [1.3, 1.5, 1.2],
+        thumb: [0.3, 0.6],
+        forearm: new Vector3(0.5, 0.45, -0.74),
+      },
+    },
   };
 }
 
-/** With `arms` the weapon comes with the hands holding it, as the player sees their own. */
-export function buildGun(id: WeaponId, arms?: ArmMaterials): GunModel {
-  const gun = id === "rifle" ? rifle(arms) : pistol(arms);
+export function buildGun(id: WeaponId): GunModel {
+  const gun = id === "rifle" ? rifle() : pistol();
+  const solids: Solid[] = [];
+  gun.group.updateMatrixWorld(true);
+  const toWeapon = gun.group.matrixWorld.clone().invert();
   gun.group.traverse((c) => {
     c.castShadow = false;
     c.receiveShadow = false;
+    const mesh = c as Mesh;
+    if (!mesh.isMesh) return;
+    mesh.geometry.computeBoundingBox();
+    const { min, max } = mesh.geometry.boundingBox!;
+    solids.push({ min, max, inverse: new Matrix4().multiplyMatrices(toWeapon, mesh.matrixWorld).invert() });
   });
-  return gun;
+  return { ...gun, solids };
 }

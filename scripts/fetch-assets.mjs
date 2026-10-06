@@ -52,6 +52,7 @@ const MODELS = [
 ];
 
 const credits = [];
+const ARMS_CREDIT = "First-person arms: fps arms (rigged only) by para (https://opengameart.org/content/fps-arms-rigged-only), CC0";
 const MESHY_CREDIT = "Zombie characters, zombie animals and player skins generated with Meshy (https://www.meshy.ai)";
 
 async function download(url, dest) {
@@ -133,6 +134,6 @@ for (const t of TEXTURES) await fetchTexture(t);
 console.log("Models");
 for (const m of MODELS) await fetchModel(m);
 // The characters come from scripts/meshy, not from this download, but share the credits file.
-credits.push(MESHY_CREDIT);
+credits.push(MESHY_CREDIT, ARMS_CREDIT);
 writeFileSync(join(out, "CREDITS.txt"), credits.join("\n") + "\n");
 console.log(`Done. ${credits.length} credited assets.`);

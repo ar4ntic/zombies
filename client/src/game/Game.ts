@@ -251,7 +251,7 @@ export class Game {
 
   async connect(name: string, skin: string, choice: SessionChoice, settings: GameSettings, testDuration?: number) {
     this.solo = choice.mode === "solo";
-    this.viewModel.setArms(skinDef(skin));
+    this.showSkin(skin);
     const events: NetworkEvents = {
       playerAdded: (id, state) => {
         if (id !== this.network.sessionId) this.remotes.add(id, state);
@@ -328,6 +328,11 @@ export class Game {
 
   changeSkin(skin: string) {
     this.network.sendSkin(skin);
+    this.showSkin(skin);
+  }
+
+  /** Shows the player's own arms as those of a skin, also behind the menu before a session exists. */
+  showSkin(skin: string) {
     this.viewModel.setArms(skinDef(skin));
   }
 

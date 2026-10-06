@@ -54,7 +54,7 @@ export class RemotePlayers {
     const root = new Group();
     const body = new Group();
     const placeholder = new Group();
-    const placeholderSuit = new MeshStandardMaterial({ color: skinDef(state.skin).sleeve, roughness: 0.55, metalness: 0.05 });
+    const placeholderSuit = new MeshStandardMaterial({ color: skinDef(state.skin).color, roughness: 0.55, metalness: 0.05 });
     const torso = new Mesh(bodyGeometry, placeholderSuit);
     torso.position.y = 0.68;
     const head = new Mesh(headGeometry, skinTone);
@@ -63,7 +63,7 @@ export class RemotePlayers {
     placeholder.traverse((c) => (c.castShadow = true));
     body.add(placeholder);
 
-    const label = nameSprite(state.name, skinDef(state.skin).sleeve);
+    const label = nameSprite(state.name, skinDef(state.skin).color);
     label.position.y = 2.1;
 
     const shield = new Mesh(
@@ -86,7 +86,7 @@ export class RemotePlayers {
   private applySkin(id: string, remote: Remote) {
     const skin = remote.state.skin;
     remote.skin = skin;
-    remote.placeholderSuit.color.set(skinDef(skin).sleeve);
+    remote.placeholderSuit.color.set(skinDef(skin).color);
     loadSkin(skin).then(
       (template) => {
         if (this.players.get(id) !== remote || remote.skin !== skin) return;
