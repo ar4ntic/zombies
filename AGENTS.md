@@ -207,7 +207,9 @@ Models, textures and the HDRI in `client/public/assets` are committed and produc
 in `scripts/` (`pnpm assets`, `node scripts/zombie-lods.mjs`, `node scripts/convert-arms.mjs`,
 `scripts/meshy/`). The logo and
 favicon are the hand-written `client/public/logo.svg` and `favicon.svg`; `node scripts/make-icons.mjs`
-renders the PNG icons from the favicon. Do not hand-edit
+renders the PNG icons from the favicon, and `node scripts/make-banner.mjs` the README banner
+`docs/banner.png` from the logo (it draws text with the installed fonts, so render it on a machine with
+Arial Black). Do not hand-edit
 the binaries; change the script and regenerate. Third-party credits are in
 `client/public/assets/CREDITS.txt` and must stay current when art is added.
 
