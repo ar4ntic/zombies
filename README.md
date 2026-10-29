@@ -1,14 +1,25 @@
-# Zombie Breakout
+<p align="center">
+  <a href="https://zombies.srantic.com"><img src="docs/banner.png" alt="Zombie Breakout" width="100%"></a>
+</p>
 
-A first-person co-op zombie shooter that runs in the browser. Play solo or create a private
-team session and share the link with friends.
+<p align="center">
+  <b>A family-friendly, first-person co-op zombie shooter that runs in the browser.</b><br>
+  Play a solo round or share a session code and hold the street with up to ten friends.
+</p>
 
-Everything runs on one Cloudflare Worker:
+<p align="center">
+  <a href="https://zombies.srantic.com"><b>Play now</b></a> ·
+  <a href="#how-it-plays">How it plays</a> ·
+  <a href="#develop">Develop</a> ·
+  <a href="#deploy">Deploy</a>
+</p>
 
-- static assets: the Vite build in `client/dist` (single-page app, so `/join/CODE` links work)
-- `GameSession` Durable Object: the authoritative game server for one session code
-  (20 Hz simulation, WebSockets, state sync with `@colyseus/schema`)
-- D1 database `zombie-breakout-db`: finished rounds, personal bests, leaderboards and accounts
+<p align="center">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white">
+  <img alt="Three.js" src="https://img.shields.io/badge/Three.js-WebGL-000000?logo=threedotjs&logoColor=white">
+  <img alt="Cloudflare Workers" src="https://img.shields.io/badge/Cloudflare-Workers%20%C2%B7%20Durable%20Objects%20%C2%B7%20D1-F38020?logo=cloudflare&logoColor=white">
+  <img alt="Vite" src="https://img.shields.io/badge/Vite-build-646CFF?logo=vite&logoColor=white">
+</p>
 
 ## How it plays
 
@@ -29,6 +40,15 @@ Everything runs on one Cloudflare Worker:
 - An optional account (email and password) owns one nickname. Once the email address is confirmed, nobody
   else can play under that nickname, the account is ranked on the members leaderboard instead of the
   public one, and it can open and join private team sessions.
+
+## Architecture
+
+Everything runs on one Cloudflare Worker:
+
+- static assets: the Vite build in `client/dist` (single-page app, so `/join/CODE` links work)
+- `GameSession` Durable Object: the authoritative game server for one session code
+  (20 Hz simulation, WebSockets, state sync with `@colyseus/schema`)
+- D1 database `zombie-breakout-db`: finished rounds, personal bests, leaderboards and accounts
 
 ## Develop
 
@@ -114,5 +134,6 @@ and never show up on leaderboards.
 - `scripts/meshy/` - generates the zombie characters, the four-legged zombies and the player skins
   with the Meshy API (costs credits; see `AGENTS.md`)
 - `scripts/make-icons.mjs` - renders the PNG icons from `client/public/favicon.svg`
+- `scripts/make-banner.mjs` - renders the README banner `docs/banner.png` from the logo
 
 Art credits are listed in `client/public/assets/CREDITS.txt`.
